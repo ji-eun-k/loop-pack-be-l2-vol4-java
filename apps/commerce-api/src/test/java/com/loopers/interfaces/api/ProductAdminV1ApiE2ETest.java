@@ -24,6 +24,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -76,14 +78,22 @@ class ProductAdminV1ApiE2ETest {
         void returnsProductList_whenAdminHeaderIsPresent() {
             Brand brand = brandJpaRepository.save(new Brand("브랜드", "설명"));
             saveProduct(brand.getId(), "상품1", BigDecimal.valueOf(10000), 5L);
+            saveProduct(brand.getId(), "상품2", BigDecimal.valueOf(20000), 3L);
+            saveProduct(brand.getId(), "상품3", BigDecimal.valueOf(30000), 1L);
 
-            ResponseEntity<ApiResponse<Object>> response = testRestTemplate.exchange(
-                BASE_URL + "?page=0&size=20",
+            ResponseEntity<ApiResponse<Map<String, Object>>> response = testRestTemplate.exchange(
+                BASE_URL + "?page=0&size=2",
                 HttpMethod.GET, new HttpEntity<>(adminHeaders()),
                 new ParameterizedTypeReference<>() {}
             );
 
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            Map<String, Object> page = response.getBody().data();
+            assertAll(
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
+                () -> assertThat((List<?>) page.get("content")).hasSize(2),
+                () -> assertThat(page.get("totalElements")).isEqualTo(3),
+                () -> assertThat(page.get("totalPages")).isEqualTo(2)
+            );
         }
 
         @DisplayName("어드민 헤더가 없으면, 401 응답을 반환한다.")
