@@ -32,63 +32,62 @@ sequenceDiagram
     OC-->>User: 401 Unauthorized
   else 인증 성공
     OC->>OF: 주문 생성 위임
+    Note over OF,DB: 트랜잭션 시작
 
-    OF->>PS: 상품 정보 조회
-    PS->>DB: 상품 존재 여부 확인
-    PS-->>OF: 상품 정보 반환
+    loop 상품별 처리 (productId 오름차순 — 데드락 방지)
+      OF->>PS: 상품 조회 및 재고 차감 요청
+      PS->>DB: 상품 존재 여부 확인
 
-    alt 상품 없음 또는 삭제됨
-      OF-->>OC: 예외 발생
-      OC-->>User: 404 Not Found
-    else 상품 유효
-      Note over CS,DB: 트랜잭션 시작
+      alt 상품 없음 또는 삭제됨
+        Note over OF,DB: 트랜잭션 롤백
+        OF-->>OC: 예외 발생
+        OC-->>User: 404 Not Found
+      else 상품 유효
+        PS->>DB: 재고 확인 (SELECT FOR UPDATE — 동시 접근 차단)
+        Note over DB: 동시 요청은 재고 확인 완료까지 대기
 
-      opt couponId 제공됨
-        OF->>CS: 쿠폰 유효성 검증 및 사용 처리
-        CS->>DB: 쿠폰 조회 (소유자·상태·만료일 확인)
-
-        alt 쿠폰 없음
-          Note over CS,DB: 트랜잭션 롤백
+        alt 재고 부족
+          Note over OF,DB: 트랜잭션 롤백
           OF-->>OC: 예외 발생
-          OC-->>User: 404 Not Found
-        else 소유자 불일치
-          Note over CS,DB: 트랜잭션 롤백
-          OF-->>OC: 예외 발생
-          OC-->>User: 403 Forbidden
-        else 사용 불가 (USED / EXPIRED / 최소금액 미충족)
-          Note over CS,DB: 트랜잭션 롤백
-          OF-->>OC: 예외 발생
-          OC-->>User: 409 Conflict
-        else 쿠폰 유효
-          CS->>DB: 쿠폰 상태 USED 로 변경
-          CS-->>OF: 할인 금액 반환
+          OC-->>User: 409 Conflict (재고 부족)
+        else 재고 충분
+          PS->>DB: 재고 차감
+          PS-->>OF: 차감 완료
         end
       end
+    end
 
-      OF->>PS: 재고 확인 및 차감 요청
-      PS->>DB: 재고 확인 (SELECT FOR UPDATE — 동시 접근 차단)
-      Note over DB: 동시 요청은 재고 확인 완료까지 대기
+    opt couponId 제공됨 — 총 주문 금액 확정 후 쿠폰 적용
+      OF->>CS: 쿠폰 유효성 검증 및 사용 처리
+      CS->>DB: 발급 쿠폰 조회 (소유자·상태·만료일 확인)
 
-      alt 재고 부족
-        Note over CS,DB: 트랜잭션 롤백
+      alt 쿠폰 없음
+        Note over OF,DB: 트랜잭션 롤백
         OF-->>OC: 예외 발생
-        OC-->>User: 409 Conflict (재고 부족)
-      else 재고 충분
-        PS->>DB: 재고 차감
-        PS-->>OF: 차감 완료
-
-        OF->>OS: 주문 생성 요청 (originalPrice, discountAmount, totalPrice)
-        OS->>OS: 금액 계산 (원래 금액 · 할인 금액 · 최종 금액)
-        OS->>DB: 주문 생성 (결제 대기 상태, 금액 스냅샷 포함)
-        OS->>DB: 주문 상품 저장 (주문 시점 상품명·가격 스냅샷)
-        OS->>DB: 외부 연동 이벤트 등록
-        OS-->>OF: 생성된 주문 반환
-        Note over CS,DB: 트랜잭션 커밋
-
-        OF-->>OC: 주문 결과 반환
-        OC-->>User: 201 Created (orderId)
+        OC-->>User: 404 Not Found
+      else 소유자 불일치
+        Note over OF,DB: 트랜잭션 롤백
+        OF-->>OC: 예외 발생
+        OC-->>User: 403 Forbidden
+      else 사용 불가 (USED / EXPIRED / 최소금액 미충족)
+        Note over OF,DB: 트랜잭션 롤백
+        OF-->>OC: 예외 발생
+        OC-->>User: 409 Conflict
+      else 쿠폰 유효
+        CS->>DB: 쿠폰 상태 USED 로 변경
+        CS-->>OF: 할인 금액 반환
       end
     end
+
+    OF->>OS: 주문 생성 요청 (originalPrice, discountAmount, totalPrice)
+    OS->>DB: 주문 생성 (결제 대기 상태, 금액 스냅샷 포함)
+    OS->>DB: 주문 상품 저장 (주문 시점 상품명·가격 스냅샷)
+    OS->>DB: 외부 연동 이벤트 등록
+    OS-->>OF: 생성된 주문 반환
+    Note over OF,DB: 트랜잭션 커밋
+
+    OF-->>OC: 주문 결과 반환
+    OC-->>User: 201 Created (orderId)
   end
 
   Note over Streamer,DB: 별도 스케줄 — 외부 시스템 연동
