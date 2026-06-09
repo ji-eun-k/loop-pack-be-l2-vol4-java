@@ -71,6 +71,7 @@ classDiagram
     +Long userId
     +CouponStatus status
     +LocalDateTime usedAt
+    +LocalDateTime expiredAt
     +use()
     +isAvailable()
   }

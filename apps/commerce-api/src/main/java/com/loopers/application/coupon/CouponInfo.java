@@ -27,25 +27,20 @@ public class CouponInfo {
     public record MyCoupon(
             Long issuedCouponId,
             Long couponId,
-            String name,
-            CouponType type,
-            BigDecimal value,
-            BigDecimal minOrderAmount,
             ZonedDateTime expiredAt,
             CouponStatus status
     ) {
-        public static MyCoupon of(IssuedCoupon issued, Coupon coupon) {
+        public static MyCoupon of(IssuedCoupon issued) {
             // DB의 status는 만료돼도 AVAILABLE로 남아있으므로, 조회 시점에 expiredAt을 비교해 EXPIRED 여부를 판단한다.
             CouponStatus effectiveStatus;
             if (issued.getStatus() == CouponStatus.USED) {
                 effectiveStatus = CouponStatus.USED;
-            } else if (ZonedDateTime.now().isAfter(coupon.getExpiredAt())) {
+            } else if (ZonedDateTime.now().isAfter(issued.getExpiredAt())) {
                 effectiveStatus = CouponStatus.EXPIRED;
             } else {
                 effectiveStatus = CouponStatus.AVAILABLE;
             }
-            return new MyCoupon(issued.getId(), coupon.getId(), coupon.getName(), coupon.getType(),
-                coupon.getValue(), coupon.getMinOrderAmount(), coupon.getExpiredAt(), effectiveStatus);
+            return new MyCoupon(issued.getId(), issued.getCouponId(), issued.getExpiredAt(), effectiveStatus);
         }
     }
 

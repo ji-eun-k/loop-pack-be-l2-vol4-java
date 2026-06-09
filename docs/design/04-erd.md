@@ -61,6 +61,7 @@ erDiagram
     bigint user_id FK
     varchar status
     timestamp used_at
+    timestamp expired_at
     timestamp created_at
     timestamp updated_at
   }
@@ -121,6 +122,5 @@ erDiagram
 | ORDER | `idx_order_status` | `status` | INDEX | 주문 상태별 조회 |
 | ORDER_ITEM | `idx_order_item_order_id` | `order_id` | INDEX | 주문 상세 조회 |
 | OUTBOX_EVENT | `idx_outbox_status` | `status` | INDEX | 미처리 이벤트 폴링 |
-| ISSUED_COUPON | `uk_issued_coupon_user_coupon` | `(user_id, coupon_id)` | UNIQUE | 유저당 동일 쿠폰 중복 발급 방지 |
 | ISSUED_COUPON | `idx_issued_coupon_user_id` | `user_id` | INDEX | 유저별 쿠폰 목록 조회 |
 | ISSUED_COUPON | `idx_issued_coupon_status` | `status` | INDEX | 상태별 쿠폰 조회 |

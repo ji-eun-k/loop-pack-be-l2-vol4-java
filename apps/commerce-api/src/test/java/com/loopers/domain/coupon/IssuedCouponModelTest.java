@@ -21,7 +21,7 @@ class IssuedCouponModelTest {
         @DisplayName("유효한 정보로 생성하면, 상태가 AVAILABLE로 생성된다.")
         @Test
         void createsIssuedCoupon_withAvailableStatus_whenValidInfoIsProvided() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().plusDays(30));
 
             assertAll(
                 () -> assertThat(issuedCoupon.getCouponId()).isEqualTo(1L),
@@ -35,7 +35,7 @@ class IssuedCouponModelTest {
         @Test
         void throwsBadRequest_whenCouponIdIsNull() {
             CoreException ex = assertThrows(CoreException.class,
-                () -> new IssuedCoupon(null, 2L));
+                () -> new IssuedCoupon(null, 2L, ZonedDateTime.now().plusDays(30)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.BAD_REQUEST);
         }
 
@@ -43,7 +43,7 @@ class IssuedCouponModelTest {
         @Test
         void throwsBadRequest_whenUserIdIsNull() {
             CoreException ex = assertThrows(CoreException.class,
-                () -> new IssuedCoupon(1L, null));
+                () -> new IssuedCoupon(1L, null, ZonedDateTime.now().plusDays(30)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.BAD_REQUEST);
         }
     }
@@ -55,7 +55,7 @@ class IssuedCouponModelTest {
         @DisplayName("AVAILABLE 상태이면, USED로 변경되고 usedAt이 설정된다.")
         @Test
         void usesIssuedCoupon_whenStatusIsAvailable() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().plusDays(30));
 
             issuedCoupon.use();
 
@@ -68,20 +68,17 @@ class IssuedCouponModelTest {
         @DisplayName("이미 USED 상태이면, CONFLICT 예외가 발생한다.")
         @Test
         void throwsConflict_whenStatusIsAlreadyUsed() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().plusDays(30));
             issuedCoupon.use();
 
             CoreException ex = assertThrows(CoreException.class, issuedCoupon::use);
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.CONFLICT);
         }
 
-        @DisplayName("EXPIRED 상태이면, CONFLICT 예외가 발생한다.")
+        @DisplayName("만료된 쿠폰이면, CONFLICT 예외가 발생한다.")
         @Test
-        void throwsConflict_whenStatusIsExpired() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(
-                1L, 1L, 2L, CouponStatus.EXPIRED, null,
-                ZonedDateTime.now(), ZonedDateTime.now(), null
-            );
+        void throwsConflict_whenCouponIsExpired() {
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().minusDays(1));
 
             CoreException ex = assertThrows(CoreException.class, issuedCoupon::use);
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.CONFLICT);
@@ -95,41 +92,26 @@ class IssuedCouponModelTest {
         @DisplayName("AVAILABLE 상태이고 만료 전이면, true를 반환한다.")
         @Test
         void returnsTrue_whenStatusIsAvailableAndNotExpired() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
-            ZonedDateTime futureExpiredAt = ZonedDateTime.now().plusDays(30);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().plusDays(30));
 
-            assertThat(issuedCoupon.isAvailable(futureExpiredAt)).isTrue();
+            assertThat(issuedCoupon.isAvailable()).isTrue();
         }
 
         @DisplayName("USED 상태이면, false를 반환한다.")
         @Test
         void returnsFalse_whenStatusIsUsed() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().plusDays(30));
             issuedCoupon.use();
-            ZonedDateTime futureExpiredAt = ZonedDateTime.now().plusDays(30);
 
-            assertThat(issuedCoupon.isAvailable(futureExpiredAt)).isFalse();
+            assertThat(issuedCoupon.isAvailable()).isFalse();
         }
 
         @DisplayName("AVAILABLE 상태이지만 만료된 경우, false를 반환한다.")
         @Test
         void returnsFalse_whenStatusIsAvailableButExpired() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L);
-            ZonedDateTime pastExpiredAt = ZonedDateTime.now().minusDays(1);
+            IssuedCoupon issuedCoupon = new IssuedCoupon(1L, 2L, ZonedDateTime.now().minusDays(1));
 
-            assertThat(issuedCoupon.isAvailable(pastExpiredAt)).isFalse();
-        }
-
-        @DisplayName("EXPIRED 상태이면, false를 반환한다.")
-        @Test
-        void returnsFalse_whenStatusIsExpired() {
-            IssuedCoupon issuedCoupon = new IssuedCoupon(
-                1L, 1L, 2L, CouponStatus.EXPIRED, null,
-                ZonedDateTime.now(), ZonedDateTime.now(), null
-            );
-            ZonedDateTime futureExpiredAt = ZonedDateTime.now().plusDays(30);
-
-            assertThat(issuedCoupon.isAvailable(futureExpiredAt)).isFalse();
+            assertThat(issuedCoupon.isAvailable()).isFalse();
         }
     }
 }

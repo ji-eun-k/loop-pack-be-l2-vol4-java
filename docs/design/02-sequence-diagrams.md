@@ -120,15 +120,8 @@ sequenceDiagram
       CS-->>CC: 예외 발생
       CC-->>User: 404 Not Found
     else 쿠폰 유효
-      CS->>DB: 이미 발급 이력 확인 (user_id + coupon_id)
-
-      alt 이미 발급됨
-        CS-->>CC: 예외 발생
-        CC-->>User: 409 Conflict
-      else 발급 이력 없음
-        CS->>DB: IssuedCoupon 생성 (AVAILABLE)
-        CC-->>User: 201 Created
-      end
+      CS->>DB: IssuedCoupon 생성 (AVAILABLE, expiredAt 스냅샷 포함)
+      CC-->>User: 201 Created
     end
   end
 ```

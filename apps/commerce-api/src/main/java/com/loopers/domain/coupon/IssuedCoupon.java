@@ -14,35 +14,38 @@ public class IssuedCoupon extends BaseDomain {
     private Long userId;
     private CouponStatus status;
     private ZonedDateTime usedAt;
+    private ZonedDateTime expiredAt;
 
-    public IssuedCoupon(Long couponId, Long userId) {
+    public IssuedCoupon(Long couponId, Long userId, ZonedDateTime expiredAt) {
         validate(couponId, userId);
         this.couponId = couponId;
         this.userId = userId;
         this.status = CouponStatus.AVAILABLE;
+        this.expiredAt = expiredAt;
     }
 
     public IssuedCoupon(Long id, Long couponId, Long userId, CouponStatus status, ZonedDateTime usedAt,
-                        ZonedDateTime createdAt, ZonedDateTime updatedAt, ZonedDateTime deletedAt) {
+                        ZonedDateTime expiredAt, ZonedDateTime createdAt, ZonedDateTime updatedAt, ZonedDateTime deletedAt) {
         this.id = id;
         this.couponId = couponId;
         this.userId = userId;
         this.status = status;
         this.usedAt = usedAt;
+        this.expiredAt = expiredAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.deletedAt = deletedAt;
     }
 
     public void use() {
-        if (status != CouponStatus.AVAILABLE) {
-            throw new CoreException(ErrorType.CONFLICT, "이미 사용되었거나 만료된 쿠폰입니다.");
+        if (status != CouponStatus.AVAILABLE || ZonedDateTime.now().isAfter(expiredAt)) {
+            throw new CoreException(ErrorType.CONFLICT, "사용 불가능한 쿠폰입니다.");
         }
         this.status = CouponStatus.USED;
         this.usedAt = ZonedDateTime.now();
     }
 
-    public boolean isAvailable(ZonedDateTime expiredAt) {
+    public boolean isAvailable() {
         return status == CouponStatus.AVAILABLE && ZonedDateTime.now().isBefore(expiredAt);
     }
 

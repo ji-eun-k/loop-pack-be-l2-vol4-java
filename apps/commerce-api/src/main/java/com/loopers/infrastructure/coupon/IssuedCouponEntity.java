@@ -8,15 +8,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 
 import java.time.ZonedDateTime;
 
 @Getter
 @Entity(name = "IssuedCoupon")
-@Table(name = "issued_coupon",
-    uniqueConstraints = @UniqueConstraint(columnNames = {"coupon_id", "user_id"}))
+@Table(name = "issued_coupon")
 public class IssuedCouponEntity extends BaseEntity {
 
     @Column(name = "coupon_id", nullable = false)
@@ -32,17 +30,21 @@ public class IssuedCouponEntity extends BaseEntity {
     @Column(name = "used_at")
     private ZonedDateTime usedAt;
 
+    @Column(name = "expired_at", nullable = false)
+    private ZonedDateTime expiredAt;
+
     protected IssuedCouponEntity() {}
 
-    public IssuedCouponEntity(Long couponId, Long userId) {
+    public IssuedCouponEntity(Long couponId, Long userId, ZonedDateTime expiredAt) {
         this.couponId = couponId;
         this.userId = userId;
         this.status = CouponStatus.AVAILABLE;
+        this.expiredAt = expiredAt;
     }
 
     public IssuedCoupon toDomain() {
         return new IssuedCoupon(getId(), couponId, userId, status, usedAt,
-            getCreatedAt(), getUpdatedAt(), getDeletedAt());
+            expiredAt, getCreatedAt(), getUpdatedAt(), getDeletedAt());
     }
 
     public void updateFrom(IssuedCoupon domain) {

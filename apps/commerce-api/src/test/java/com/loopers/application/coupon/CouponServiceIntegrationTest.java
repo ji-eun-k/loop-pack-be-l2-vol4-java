@@ -53,14 +53,14 @@ class CouponServiceIntegrationTest {
         return couponJpaRepository.save(new CouponEntity(name, type, value, minOrderAmount, expiredAt));
     }
 
-    private IssuedCouponEntity saveIssuedCoupon(Long couponId, Long userId) {
-        return issuedCouponJpaRepository.save(new IssuedCouponEntity(couponId, userId));
+    private IssuedCouponEntity saveIssuedCoupon(Long couponId, Long userId, ZonedDateTime expiredAt) {
+        return issuedCouponJpaRepository.save(new IssuedCouponEntity(couponId, userId, expiredAt));
     }
 
-    private IssuedCouponEntity saveUsedIssuedCoupon(Long couponId, Long userId) {
-        IssuedCouponEntity entity = issuedCouponJpaRepository.save(new IssuedCouponEntity(couponId, userId));
+    private IssuedCouponEntity saveUsedIssuedCoupon(Long couponId, Long userId, ZonedDateTime expiredAt) {
+        IssuedCouponEntity entity = issuedCouponJpaRepository.save(new IssuedCouponEntity(couponId, userId, expiredAt));
         IssuedCoupon used = new IssuedCoupon(entity.getId(), couponId, userId, CouponStatus.USED, ZonedDateTime.now(),
-            entity.getCreatedAt(), entity.getUpdatedAt(), null);
+            expiredAt, entity.getCreatedAt(), entity.getUpdatedAt(), null);
         entity.updateFrom(used);
         return issuedCouponJpaRepository.save(entity);
     }
@@ -103,27 +103,16 @@ class CouponServiceIntegrationTest {
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.NOT_FOUND);
         }
 
-        @DisplayName("동일 유저에게 이미 발급된 쿠폰이면, CONFLICT 예외가 발생한다.")
+        @DisplayName("동일 유저에게 이미 발급된 쿠폰이라도, 중복 발급된다.")
         @Test
-        void throwsConflict_whenAlreadyIssuedToSameUser() {
+        void savesIssuedCoupon_evenWhenAlreadyIssuedToSameUser() {
             CouponEntity coupon = saveCoupon("중복 발급 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            saveIssuedCoupon(coupon.getId(), 1L);
+            saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
-            CoreException ex = assertThrows(CoreException.class, () -> couponService.issue(coupon.getId(), 1L));
-            assertThat(ex.getErrorType()).isEqualTo(ErrorType.CONFLICT);
-        }
+            IssuedCoupon result = couponService.issue(coupon.getId(), 1L);
 
-        @DisplayName("다른 유저에게 이미 발급된 쿠폰이라도, 요청 유저의 발급 이력이 없으면 발급된다.")
-        @Test
-        void savesIssuedCoupon_whenOtherUserAlreadyIssuedButRequesterHasNone() {
-            CouponEntity coupon = saveCoupon("공유 가능 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
-                ZonedDateTime.now().plusDays(30));
-            saveIssuedCoupon(coupon.getId(), 1L);
-
-            IssuedCoupon result = couponService.issue(coupon.getId(), 2L);
-
-            assertThat(result.getUserId()).isEqualTo(2L);
+            assertThat(result.getUserId()).isEqualTo(1L);
         }
     }
 
@@ -143,7 +132,7 @@ class CouponServiceIntegrationTest {
         void returnsAvailable_whenCouponIsAvailableAndNotExpired() {
             CouponEntity coupon = saveCoupon("유효 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            saveIssuedCoupon(coupon.getId(), 1L);
+            saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             List<CouponInfo.MyCoupon> result = couponService.getUserCoupons(1L);
 
@@ -158,7 +147,7 @@ class CouponServiceIntegrationTest {
         void returnsUsed_whenCouponIsUsed() {
             CouponEntity coupon = saveCoupon("사용 완료 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            saveUsedIssuedCoupon(coupon.getId(), 1L);
+            saveUsedIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             List<CouponInfo.MyCoupon> result = couponService.getUserCoupons(1L);
 
@@ -173,7 +162,7 @@ class CouponServiceIntegrationTest {
         void returnsExpired_whenCouponExpiredButStatusIsStillAvailable() {
             CouponEntity coupon = saveCoupon("만료 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().minusDays(1));
-            saveIssuedCoupon(coupon.getId(), 1L);
+            saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             List<CouponInfo.MyCoupon> result = couponService.getUserCoupons(1L);
 
@@ -193,9 +182,9 @@ class CouponServiceIntegrationTest {
             CouponEntity expired = saveCoupon("만료", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().minusDays(1));
 
-            saveIssuedCoupon(available.getId(), 1L);
-            saveUsedIssuedCoupon(used.getId(), 1L);
-            saveIssuedCoupon(expired.getId(), 1L);
+            saveIssuedCoupon(available.getId(), 1L, available.getExpiredAt());
+            saveUsedIssuedCoupon(used.getId(), 1L, used.getExpiredAt());
+            saveIssuedCoupon(expired.getId(), 1L, expired.getExpiredAt());
 
             List<CouponInfo.MyCoupon> result = couponService.getUserCoupons(1L);
 
@@ -217,7 +206,7 @@ class CouponServiceIntegrationTest {
         void returnsFixedDiscount_andChangesStatusToUsed() {
             CouponEntity coupon = saveCoupon("정액 쿠폰", CouponType.FIXED, BigDecimal.valueOf(3000), null,
                 ZonedDateTime.now().plusDays(30));
-            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             BigDecimal discount = couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000));
 
@@ -234,7 +223,7 @@ class CouponServiceIntegrationTest {
             // 20000 * 10% = 2000
             CouponEntity coupon = saveCoupon("10% 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             BigDecimal discount = couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(20000));
 
@@ -258,7 +247,7 @@ class CouponServiceIntegrationTest {
         void throwsForbidden_whenRequesterIsNotOwner() {
             CouponEntity coupon = saveCoupon("쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
                 () -> couponService.validateAndUse(issued.getId(), 2L, BigDecimal.valueOf(10000)));
@@ -270,7 +259,7 @@ class CouponServiceIntegrationTest {
         void throwsConflict_whenCouponAlreadyUsed() {
             CouponEntity coupon = saveCoupon("사용된 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            IssuedCouponEntity issued = saveUsedIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveUsedIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
                 () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000)));
@@ -282,7 +271,7 @@ class CouponServiceIntegrationTest {
         void throwsConflict_whenCouponIsExpired() {
             CouponEntity coupon = saveCoupon("만료 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().minusDays(1));
-            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
                 () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000)));
@@ -294,7 +283,7 @@ class CouponServiceIntegrationTest {
         void throwsBadRequest_whenOrderAmountBelowMinOrderAmount() {
             CouponEntity coupon = saveCoupon("최소금액 쿠폰", CouponType.RATE, BigDecimal.TEN,
                 BigDecimal.valueOf(20000), ZonedDateTime.now().plusDays(30));
-            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L);
+            IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
                 () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(5000)));
@@ -480,8 +469,8 @@ class CouponServiceIntegrationTest {
         void returnsIssuedCoupons_whenCouponExists() {
             CouponEntity coupon = saveCoupon("발급 내역 쿠폰", CouponType.RATE, BigDecimal.TEN, null,
                 ZonedDateTime.now().plusDays(30));
-            saveIssuedCoupon(coupon.getId(), 1L);
-            saveIssuedCoupon(coupon.getId(), 2L);
+            saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
+            saveIssuedCoupon(coupon.getId(), 2L, coupon.getExpiredAt());
 
             Page<IssuedCoupon> result = couponService.getIssuedCoupons(coupon.getId(), PageRequest.of(0, 10));
 

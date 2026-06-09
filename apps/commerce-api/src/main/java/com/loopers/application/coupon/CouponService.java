@@ -7,7 +7,6 @@ import com.loopers.domain.coupon.IssuedCouponRepository;
 import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
@@ -25,23 +24,14 @@ public class CouponService {
 
     @Transactional
     public IssuedCoupon issue(Long couponId, Long userId) {
-        couponRepository.findById(couponId)
+        Coupon coupon = couponRepository.findById(couponId)
             .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "존재하지 않는 쿠폰입니다."));
-        try {
-            return issuedCouponRepository.save(new IssuedCoupon(couponId, userId));
-        } catch (DataIntegrityViolationException e) {
-            throw new CoreException(ErrorType.CONFLICT, "이미 발급된 쿠폰입니다.");
-        }
+        return issuedCouponRepository.save(new IssuedCoupon(couponId, userId, coupon.getExpiredAt()));
     }
 
     public List<CouponInfo.MyCoupon> getUserCoupons(Long userId) {
-        List<IssuedCoupon> issuedCoupons = issuedCouponRepository.findAllByUserId(userId);
-        return issuedCoupons.stream()
-            .map(issued -> {
-                Coupon coupon = couponRepository.findById(issued.getCouponId())
-                    .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "쿠폰 정보가 존재하지 않습니다."));
-                return CouponInfo.MyCoupon.of(issued, coupon);
-            })
+        return issuedCouponRepository.findAllByUserId(userId).stream()
+            .map(CouponInfo.MyCoupon::of)
             .toList();
     }
 
@@ -55,9 +45,6 @@ public class CouponService {
         }
         Coupon coupon = couponRepository.findById(issuedCoupon.getCouponId())
             .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "쿠폰 정보가 존재하지 않습니다."));
-        if (!issuedCoupon.isAvailable(coupon.getExpiredAt())) {
-            throw new CoreException(ErrorType.CONFLICT, "사용 불가능한 쿠폰입니다.");
-        }
         BigDecimal discount = coupon.calculateDiscount(totalAmount);
         issuedCoupon.use();
         issuedCouponRepository.save(issuedCoupon);

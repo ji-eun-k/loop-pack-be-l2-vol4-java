@@ -45,52 +45,6 @@ class CouponConcurrencyTest {
         databaseCleanUp.truncateAllTables();
     }
 
-    @DisplayName("동일 유저가 동일 쿠폰을 동시에 요청하면, 1건만 발급되고 나머지는 CONFLICT 예외가 발생한다.")
-    @Test
-    void issuesOnlyOnce_whenConcurrentRequestsForSameUserAndCoupon() throws InterruptedException {
-        // Arrange
-        CouponEntity coupon = couponJpaRepository.save(
-            new CouponEntity("선착순 쿠폰", CouponType.RATE, BigDecimal.TEN, null, ZonedDateTime.now().plusDays(30))
-        );
-
-        int threadCount = 30;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch ready = new CountDownLatch(threadCount);
-        CountDownLatch start = new CountDownLatch(1);
-        AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger conflictCount = new AtomicInteger(0);
-
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                ready.countDown();
-                try {
-                    start.await();
-                    couponService.issue(coupon.getId(), 1L);
-                    successCount.incrementAndGet();
-                } catch (CoreException e) {
-                    if (e.getErrorType() == ErrorType.CONFLICT) {
-                        conflictCount.incrementAndGet();
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
-        }
-
-        ready.await();
-        start.countDown();
-        executor.shutdown();
-        executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
-
-        // Assert
-        long issuedCount = issuedCouponJpaRepository.count();
-        assertAll(
-            () -> assertThat(successCount.get()).isEqualTo(1),
-            () -> assertThat(conflictCount.get()).isEqualTo(threadCount - 1),
-            () -> assertThat(issuedCount).isEqualTo(1)
-        );
-    }
-
     @DisplayName("동일 유저가 동일 발급 쿠폰을 동시에 사용 요청하면, 1건만 성공하고 나머지는 CONFLICT 예외가 발생한다.")
     @Test
     void usesOnlyOnce_whenConcurrentRequestsForSameIssuedCoupon() throws InterruptedException {
@@ -98,7 +52,7 @@ class CouponConcurrencyTest {
         CouponEntity coupon = couponJpaRepository.save(
             new CouponEntity("10% 할인 쿠폰", CouponType.RATE, BigDecimal.TEN, null, ZonedDateTime.now().plusDays(30))
         );
-        IssuedCouponEntity issuedCoupon = issuedCouponJpaRepository.save(new IssuedCouponEntity(coupon.getId(), 1L));
+        IssuedCouponEntity issuedCoupon = issuedCouponJpaRepository.save(new IssuedCouponEntity(coupon.getId(), 1L, ZonedDateTime.now().plusDays(30)));
 
         int threadCount = 30;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);

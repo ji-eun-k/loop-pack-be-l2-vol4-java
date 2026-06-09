@@ -22,7 +22,7 @@ public class IssuedCouponRepositoryImpl implements IssuedCouponRepository {
     public IssuedCoupon save(IssuedCoupon issuedCoupon) {
         if (issuedCoupon.getId() == null) {
             return issuedCouponJpaRepository.saveAndFlush(
-                new IssuedCouponEntity(issuedCoupon.getCouponId(), issuedCoupon.getUserId())
+                new IssuedCouponEntity(issuedCoupon.getCouponId(), issuedCoupon.getUserId(), issuedCoupon.getExpiredAt())
             ).toDomain();
         }
         IssuedCouponEntity entity = issuedCouponJpaRepository.findById(issuedCoupon.getId())
