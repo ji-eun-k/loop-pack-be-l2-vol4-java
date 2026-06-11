@@ -199,7 +199,7 @@ class CouponServiceIntegrationTest {
 
     @DisplayName("쿠폰 사용 처리 시,")
     @Nested
-    class ValidateAndUse {
+    class Use {
 
         @DisplayName("유효한 FIXED 쿠폰이면, 정액 할인 금액을 반환하고 상태가 USED로 변경된다.")
         @Test
@@ -208,7 +208,7 @@ class CouponServiceIntegrationTest {
                 ZonedDateTime.now().plusDays(30));
             IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
-            BigDecimal discount = couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000));
+            BigDecimal discount = couponService.use(issued.getId(), 1L, BigDecimal.valueOf(10000));
 
             IssuedCouponEntity saved = issuedCouponJpaRepository.findById(issued.getId()).orElseThrow();
             assertAll(
@@ -225,7 +225,7 @@ class CouponServiceIntegrationTest {
                 ZonedDateTime.now().plusDays(30));
             IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
-            BigDecimal discount = couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(20000));
+            BigDecimal discount = couponService.use(issued.getId(), 1L, BigDecimal.valueOf(20000));
 
             IssuedCouponEntity saved = issuedCouponJpaRepository.findById(issued.getId()).orElseThrow();
             assertAll(
@@ -238,7 +238,7 @@ class CouponServiceIntegrationTest {
         @Test
         void throwsNotFound_whenIssuedCouponDoesNotExist() {
             CoreException ex = assertThrows(CoreException.class,
-                () -> couponService.validateAndUse(9999L, 1L, BigDecimal.valueOf(10000)));
+                () -> couponService.use(9999L, 1L, BigDecimal.valueOf(10000)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.NOT_FOUND);
         }
 
@@ -250,7 +250,7 @@ class CouponServiceIntegrationTest {
             IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
-                () -> couponService.validateAndUse(issued.getId(), 2L, BigDecimal.valueOf(10000)));
+                () -> couponService.use(issued.getId(), 2L, BigDecimal.valueOf(10000)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.FORBIDDEN);
         }
 
@@ -262,7 +262,7 @@ class CouponServiceIntegrationTest {
             IssuedCouponEntity issued = saveUsedIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
-                () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000)));
+                () -> couponService.use(issued.getId(), 1L, BigDecimal.valueOf(10000)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.CONFLICT);
         }
 
@@ -274,7 +274,7 @@ class CouponServiceIntegrationTest {
             IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
-                () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(10000)));
+                () -> couponService.use(issued.getId(), 1L, BigDecimal.valueOf(10000)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.CONFLICT);
         }
 
@@ -286,7 +286,7 @@ class CouponServiceIntegrationTest {
             IssuedCouponEntity issued = saveIssuedCoupon(coupon.getId(), 1L, coupon.getExpiredAt());
 
             CoreException ex = assertThrows(CoreException.class,
-                () -> couponService.validateAndUse(issued.getId(), 1L, BigDecimal.valueOf(5000)));
+                () -> couponService.use(issued.getId(), 1L, BigDecimal.valueOf(5000)));
             assertThat(ex.getErrorType()).isEqualTo(ErrorType.BAD_REQUEST);
         }
     }

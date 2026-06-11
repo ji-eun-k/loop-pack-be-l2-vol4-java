@@ -38,7 +38,7 @@ public class CouponService {
 
     // OrderFacade의 @Transactional에 합류하여 쿠폰 사용·재고 차감·주문 생성이 단일 트랜잭션으로 묶인다.
     @Transactional
-    public BigDecimal validateAndUse(Long issuedCouponId, Long userId, BigDecimal totalAmount) {
+    public BigDecimal use(Long issuedCouponId, Long userId, BigDecimal totalAmount) {
         try {
             IssuedCoupon issuedCoupon = issuedCouponRepository.findById(issuedCouponId)
                 .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "존재하지 않는 발급 쿠폰입니다."));

@@ -66,7 +66,7 @@ class CouponConcurrencyTest {
                 ready.countDown();
                 try {
                     start.await();
-                    couponService.validateAndUse(issuedCoupon.getId(), 1L, BigDecimal.valueOf(10000));
+                    couponService.use(issuedCoupon.getId(), 1L, BigDecimal.valueOf(10000));
                     successCount.incrementAndGet();
                 } catch (CoreException e) {
                     if (e.getErrorType() == ErrorType.CONFLICT) {

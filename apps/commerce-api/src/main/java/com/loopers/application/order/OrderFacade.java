@@ -46,7 +46,7 @@ public class OrderFacade {
         // 총 주문 금액이 확정된 후에 최소 주문 금액 검증과 할인 계산이 가능하다.
         BigDecimal discountAmount = BigDecimal.ZERO;
         if (command.issuedCouponId() != null) {
-            discountAmount = couponService.validateAndUse(command.issuedCouponId(), command.userId(), originalPrice);
+            discountAmount = couponService.use(command.issuedCouponId(), command.userId(), originalPrice);
         }
 
         Order order = orderService.createOrder(command.userId(), command.issuedCouponId(), originalPrice, discountAmount, items);
