@@ -43,9 +43,11 @@ public class ProductDataLoader implements ApplicationRunner {
         log.info("[DataLoader] 브랜드 {}개 삽입 완료", BRAND_COUNT);
     }
 
+    private static final double DELETED_RATIO = 0.3;
+
     private void insertProducts() {
-        log.info("[DataLoader] 상품 {}개 삽입 시작", PRODUCT_COUNT);
-        String sql = "INSERT INTO product (brand_id, name, price, like_count, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())";
+        log.info("[DataLoader] 상품 {}개 삽입 시작 (삭제 비율 {}%)", PRODUCT_COUNT, (int) (DELETED_RATIO * 100));
+        String sql = "INSERT INTO product (brand_id, name, price, like_count, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, NOW(), NOW(), ?)";
 
         ThreadLocalRandom random = ThreadLocalRandom.current();
         List<Object[]> batch = new ArrayList<>(BATCH_SIZE);
@@ -55,8 +57,9 @@ public class ProductDataLoader implements ApplicationRunner {
             String name = "상품_" + i;
             BigDecimal price = BigDecimal.valueOf(random.nextInt(1, 10_001) * 100L); // 100 ~ 1,000,000
             long likeCount = random.nextLong(0, 10_001); // 0 ~ 10,000
+            Object deletedAt = random.nextDouble() < DELETED_RATIO ? "2024-01-01 00:00:00" : null;
 
-            batch.add(new Object[]{brandId, name, price, likeCount});
+            batch.add(new Object[]{brandId, name, price, likeCount, deletedAt});
 
             if (batch.size() == BATCH_SIZE) {
                 jdbcTemplate.batchUpdate(sql, batch);

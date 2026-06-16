@@ -19,9 +19,6 @@ dependencies {
     annotationProcessor("jakarta.persistence:jakarta.persistence-api")
     annotationProcessor("jakarta.annotation:jakarta.annotation-api")
 
-    // p6spy
-    implementation("com.github.gavlyukovskiy:p6spy-spring-boot-starter:${project.properties["p6spyVersion"]}")
-
     // test-fixtures
     testImplementation(testFixtures(project(":modules:jpa")))
     testImplementation(testFixtures(project(":modules:redis")))
