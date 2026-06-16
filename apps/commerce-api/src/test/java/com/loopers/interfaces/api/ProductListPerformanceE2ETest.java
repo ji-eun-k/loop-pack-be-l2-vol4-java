@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,8 +46,20 @@ class ProductListPerformanceE2ETest {
     @Autowired
     private DatabaseCleanUp databaseCleanUp;
 
+    private static final List<String> INDEX_NAMES = List.of(
+        "idx_product_deleted_at_created_at",
+        "idx_product_deleted_at_price",
+        "idx_product_deleted_at_like_count",
+        "idx_product_brand_id_deleted_at_created_at",
+        "idx_product_brand_id_deleted_at_price",
+        "idx_product_brand_id_deleted_at_like_count"
+    );
+
     @BeforeAll
     void loadData() throws Exception {
+        for (String name : INDEX_NAMES) {
+            try { jdbcTemplate.execute("DROP INDEX " + name + " ON product"); } catch (Exception ignored) {}
+        }
         new ProductDataLoader(jdbcTemplate).run(null);
     }
 

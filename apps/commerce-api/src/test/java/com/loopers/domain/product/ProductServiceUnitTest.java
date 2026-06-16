@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
@@ -22,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
 class ProductServiceUnitTest {
 
@@ -29,7 +31,7 @@ class ProductServiceUnitTest {
 
     @BeforeEach
     void setUp() {
-        productService = new ProductService(new FakeProductRepository(), new FakeProductStockRepository());
+        productService = new ProductService(new FakeProductRepository(), new FakeProductStockRepository(), mock(RedisTemplate.class));
     }
 
     static class FakeProductRepository implements ProductRepository {
@@ -84,6 +86,10 @@ class ProductServiceUnitTest {
 
         @Override
         public void decrementLikeCount(Long id) {
+        }
+
+        @Override
+        public void adjustLikeCount(Long id, long amount) {
         }
     }
 

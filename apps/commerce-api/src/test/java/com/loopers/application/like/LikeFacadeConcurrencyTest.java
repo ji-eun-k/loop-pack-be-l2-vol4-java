@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
 import java.util.concurrent.CountDownLatch;
@@ -39,9 +40,17 @@ class LikeFacadeConcurrencyTest {
     @Autowired
     private DatabaseCleanUp databaseCleanUp;
 
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
     @AfterEach
     void tearDown() {
         databaseCleanUp.truncateAllTables();
+        redisTemplate.delete(redisTemplate.keys("product:like:pending:*"));
+    }
+
+    private String likePendingKey(Long productId) {
+        return "product:like:pending:" + productId;
     }
 
     @DisplayName("서로 다른 유저가 동시에 좋아요를 누르면, likeCount가 정확히 반영된다.")
@@ -76,14 +85,14 @@ class LikeFacadeConcurrencyTest {
         executor.awaitTermination(10, TimeUnit.SECONDS);
 
         // Assert
-        ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
+        String delta = redisTemplate.opsForValue().get(likePendingKey(product.getId()));
         assertAll(
-            () -> assertThat(result.getLikeCount()).isEqualTo(threadCount),
+            () -> assertThat(delta).isEqualTo(String.valueOf(threadCount)),
             () -> assertThat(productLikeJpaRepository.count()).isEqualTo(threadCount)
         );
     }
 
-    @DisplayName("여러 유저가 동시에 좋아요와 취소를 반복하면, likeCount가 실제 좋아요 수와 일치한다.")
+    @DisplayName("여러 유저가 동시에 좋아요와 취소를 반복하면, Redis delta가 실제 좋아요 수와 일치한다.")
     @Test
     void likeCountMatchesActualLikes_whenUsersToggleLikeConcurrently() throws InterruptedException {
         // Arrange
@@ -123,12 +132,12 @@ class LikeFacadeConcurrencyTest {
         executor.shutdown();
         executor.awaitTermination(30, TimeUnit.SECONDS);
 
-        // Assert: 30명 모두 홀수 회차 종료 → 전원 좋아요 상태, likeCount와 실제 레코드 수 일치
+        // Assert: 30명 모두 홀수 회차 종료 → 전원 좋아요 상태, Redis delta와 실제 레코드 수 일치
         long actualLikeRecords = productLikeJpaRepository.count();
-        ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
+        String delta = redisTemplate.opsForValue().get(likePendingKey(product.getId()));
         assertAll(
-            () -> assertThat(result.getLikeCount()).isEqualTo(actualLikeRecords),
-            () -> assertThat(result.getLikeCount()).isEqualTo(userCount)
+            () -> assertThat(delta).isEqualTo(String.valueOf(actualLikeRecords)),
+            () -> assertThat(actualLikeRecords).isEqualTo(userCount)
         );
     }
 
@@ -165,9 +174,9 @@ class LikeFacadeConcurrencyTest {
         executor.awaitTermination(10, TimeUnit.SECONDS);
 
         // Assert
-        ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
+        String delta = redisTemplate.opsForValue().get(likePendingKey(product.getId()));
         assertAll(
-            () -> assertThat(result.getLikeCount()).isEqualTo(1),
+            () -> assertThat(delta).isEqualTo("1"),
             () -> assertThat(productLikeJpaRepository.count()).isEqualTo(1)
         );
     }
