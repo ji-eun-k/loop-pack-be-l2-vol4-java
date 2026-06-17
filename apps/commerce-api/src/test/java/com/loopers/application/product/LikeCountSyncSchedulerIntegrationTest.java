@@ -41,7 +41,7 @@ class LikeCountSyncSchedulerIntegrationTest {
         redisTemplate.delete(redisTemplate.keys("product:like:pending:*"));
     }
 
-    @DisplayName("sync()")
+    @DisplayName("productLikeSync()")
     @Nested
     class Sync {
 
@@ -55,7 +55,7 @@ class LikeCountSyncSchedulerIntegrationTest {
             redisTemplate.opsForValue().set("product:like:pending:" + product.getId(), "5");
 
             // Act
-            likeCountSyncScheduler.sync();
+            likeCountSyncScheduler.productLikeSync();
 
             // Assert
             ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
@@ -75,7 +75,7 @@ class LikeCountSyncSchedulerIntegrationTest {
             redisTemplate.opsForValue().set("product:like:pending:" + product.getId(), "-1");
 
             // Act
-            likeCountSyncScheduler.sync();
+            likeCountSyncScheduler.productLikeSync();
 
             // Assert
             ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
@@ -92,7 +92,7 @@ class LikeCountSyncSchedulerIntegrationTest {
             redisTemplate.opsForValue().set("product:like:pending:" + product.getId(), "-5");
 
             // Act
-            likeCountSyncScheduler.sync();
+            likeCountSyncScheduler.productLikeSync();
 
             // Assert
             ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
@@ -108,7 +108,7 @@ class LikeCountSyncSchedulerIntegrationTest {
                 new ProductEntity(brand.getId(), "청바지", BigDecimal.valueOf(50000)));
 
             // Act
-            likeCountSyncScheduler.sync();
+            likeCountSyncScheduler.productLikeSync();
 
             // Assert
             ProductEntity result = productJpaRepository.findById(product.getId()).orElseThrow();
@@ -128,7 +128,7 @@ class LikeCountSyncSchedulerIntegrationTest {
             redisTemplate.opsForValue().set("product:like:pending:" + productB.getId(), "7");
 
             // Act
-            likeCountSyncScheduler.sync();
+            likeCountSyncScheduler.productLikeSync();
 
             // Assert
             assertThat(productJpaRepository.findById(productA.getId()).orElseThrow().getLikeCount()).isEqualTo(3);

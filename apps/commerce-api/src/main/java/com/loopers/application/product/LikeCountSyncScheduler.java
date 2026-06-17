@@ -3,11 +3,11 @@ package com.loopers.application.product;
 import com.loopers.domain.product.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-
-import java.util.Set;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -21,23 +21,22 @@ public class LikeCountSyncScheduler {
     private final ProductRepository productRepository;
 
     @Scheduled(fixedDelay = 300_000)
-    public void sync() {
-        Set<String> keys = redisTemplate.keys(PENDING_KEY_PATTERN);
-        if (keys == null || keys.isEmpty()) {
-            return;
-        }
-
-        for (String key : keys) {
-            String value = redisTemplate.opsForValue().getAndDelete(key);
-            if (value == null) {
-                continue;
+    public void productLikeSync() {
+        ScanOptions options = ScanOptions.scanOptions().match(PENDING_KEY_PATTERN).count(100).build();
+        try (Cursor<String> cursor = redisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                String key = cursor.next();
+                String value = redisTemplate.opsForValue().getAndDelete(key);
+                if (value == null) {
+                    continue;
+                }
+                long pending = Long.parseLong(value);
+                if (pending == 0) {
+                    continue;
+                }
+                Long productId = Long.parseLong(key.replace(PENDING_KEY_PREFIX, ""));
+                applyToDatabase(productId, pending);
             }
-            long pending = Long.parseLong(value);
-            if (pending == 0) {
-                continue;
-            }
-            Long productId = Long.parseLong(key.replace(PENDING_KEY_PREFIX, ""));
-            applyToDatabase(productId, pending);
         }
     }
 
