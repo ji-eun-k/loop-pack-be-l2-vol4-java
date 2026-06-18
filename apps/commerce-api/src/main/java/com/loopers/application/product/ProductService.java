@@ -28,6 +28,7 @@ public class ProductService {
     private final ProductLikeCountRepository productLikeCountRepository;
     private final ProductCacheRepository productCacheRepository;
 
+    @Transactional(readOnly = true)
     public Product getProduct(Long id) {
         return productCacheRepository.findById(id)
             .orElseGet(() -> {
@@ -38,11 +39,13 @@ public class ProductService {
             });
     }
 
+    @Transactional(readOnly = true)
     public ProductStock getProductStock(Long productId) {
         return productStockRepository.findByProductId(productId)
             .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "존재하지 않는 상품입니다."));
     }
 
+    @Transactional(readOnly = true)
     public Page<Product> getProducts(Long brandId, ProductSort sort, Pageable pageable) {
         int page = pageable.getPageNumber();
         int size = pageable.getPageSize();
