@@ -220,6 +220,64 @@ class ProductListPerformanceE2ETest {
         assertThat(result.get("key")).isNotNull();
     }
 
+    // ========================
+    // 브랜드 복합 인덱스에서 deleted_at 제거 비교
+    // ========================
+
+    @Test
+    @Order(18)
+    @DisplayName("브랜드 복합 인덱스 deleted_at 제거 후 재생성")
+    void recreateBrandIndexesWithoutDeletedAt() {
+        jdbcTemplate.execute("DROP INDEX idx_product_brand_id_deleted_at_created_at ON product");
+        jdbcTemplate.execute("DROP INDEX idx_product_brand_id_deleted_at_price ON product");
+        jdbcTemplate.execute("DROP INDEX idx_product_brand_id_deleted_at_like_count ON product");
+        jdbcTemplate.execute("CREATE INDEX idx_product_brand_id_created_at ON product (brand_id, created_at)");
+        jdbcTemplate.execute("CREATE INDEX idx_product_brand_id_price ON product (brand_id, price)");
+        jdbcTemplate.execute("CREATE INDEX idx_product_brand_id_like_count ON product (brand_id, like_count)");
+        jdbcTemplate.execute("ANALYZE TABLE product");
+        log.info("브랜드 복합 인덱스 deleted_at 제거 완료");
+    }
+
+    @Test
+    @Order(19)
+    @DisplayName("[deleted_at 없는 인덱스 | 1페이지] 브랜드 필터 + latest 정렬")
+    void withoutDeletedAt_brandFilter_latest() {
+        Map<String, Object> result = explain("deleted_at 없는 인덱스 | 1페이지 | 브랜드 + latest", BRAND_LATEST, getFirstBrandId());
+        assertThat(result.get("key")).isNotNull();
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("[deleted_at 없는 인덱스 | 1페이지] 브랜드 필터 + price_asc 정렬")
+    void withoutDeletedAt_brandFilter_priceAsc() {
+        Map<String, Object> result = explain("deleted_at 없는 인덱스 | 1페이지 | 브랜드 + price_asc", BRAND_PRICE_ASC, getFirstBrandId());
+        assertThat(result.get("key")).isNotNull();
+    }
+
+    @Test
+    @Order(21)
+    @DisplayName("[deleted_at 없는 인덱스 | 1페이지] 브랜드 필터 + likes_desc 정렬")
+    void withoutDeletedAt_brandFilter_likesDesc() {
+        Map<String, Object> result = explain("deleted_at 없는 인덱스 | 1페이지 | 브랜드 + likes_desc", BRAND_LIKES_DESC, getFirstBrandId());
+        assertThat(result.get("key")).isNotNull();
+    }
+
+    @Test
+    @Order(22)
+    @DisplayName("[deleted_at 없는 인덱스 | 깊은 페이지] 브랜드 필터 + latest 정렬 (OFFSET 600)")
+    void withoutDeletedAt_deep_brandFilter_latest() {
+        Map<String, Object> result = explain("deleted_at 없는 인덱스 | 깊은 페이지 | 브랜드 + latest", DEEP_BRAND_LATEST, getFirstBrandId());
+        assertThat(result.get("key")).isNotNull();
+    }
+
+    @Test
+    @Order(23)
+    @DisplayName("[deleted_at 없는 인덱스 | 깊은 페이지] 브랜드 필터 + likes_desc 정렬 (OFFSET 600)")
+    void withoutDeletedAt_deep_brandFilter_likesDesc() {
+        Map<String, Object> result = explain("deleted_at 없는 인덱스 | 깊은 페이지 | 브랜드 + likes_desc", DEEP_BRAND_LIKES_DESC, getFirstBrandId());
+        assertThat(result.get("key")).isNotNull();
+    }
+
     private Map<String, Object> explain(String label, String sql, Object... params) {
         Map<String, Object> row = jdbcTemplate.queryForList("EXPLAIN " + sql, params).getFirst();
         String analyze = jdbcTemplate.queryForObject("EXPLAIN ANALYZE " + sql, String.class, params);
