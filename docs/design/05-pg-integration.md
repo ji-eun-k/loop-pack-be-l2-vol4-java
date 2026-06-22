@@ -53,12 +53,15 @@ Content-Type: application/json
     - 존재하지 않으면 `404` 반환
     - 요청 유저의 주문이 아니면 `403` 반환
     - 주문 상태가 `PENDING`이 아니면 `409` 반환
-3. PG에 결제를 요청한다.
+3. `orderId`로 기존 Payment를 조회한다.
+    - `SUCCESS` 상태의 Payment가 존재하면 `409` 반환 (중복 결제)
+4. `Payment` 레코드를 저장한다 (`status: PENDING`, `transactionKey: null`).
+5. PG에 결제를 요청한다.
     - 주문의 `totalPrice`를 결제 금액으로 사용
-    - PG 오류(`500`) 시 재시도
-4. PG로부터 `transactionKey`를 수신한다.
-5. `Payment` 레코드를 저장한다 (`status: PENDING`, `transactionKey` 포함).
-6. `201` 응답과 함께 `transactionKey`를 반환한다.
+    - PG 오류(`500`) 시 재시도, 최대 N회 실패 시 `503` 반환
+6. PG로부터 `transactionKey`를 수신한다.
+7. `Payment` 상태를 `IN_PROGRESS`로 전환하고 `transactionKey`를 저장한다.
+8. `201` 응답과 함께 `transactionKey`를 반환한다.
 
 ---
 
@@ -147,7 +150,8 @@ sequenceDiagram
     PF->>PS: orderId로 기존 Payment 조회
     alt 중복 결제 (SUCCESS Payment 존재)
       PF-->>User: 409 Conflict (중복결제)
-    else 결제 이력 없음
+    else
+      PF->>PS: Payment 저장 (status: PENDING, transactionKey: null)
       PF->>PG: POST /api/v1/payments (amount는 주문의 totalPrice 사용)
 
       alt PG 오류 (40% 확률)
@@ -155,8 +159,8 @@ sequenceDiagram
         Note over PF,PG: 재시도
       else 결제 요청 성공
         PG-->>PF: { transactionKey, status: PENDING }
-        PF->>PS: Payment 저장 (orderId, transactionKey, status: PENDING)
-        PF-->>User: transactionKey 반환
+        PF->>PS: Payment status → IN_PROGRESS, transactionKey 저장
+        PF-->>User: 201, transactionKey 반환
       end
     end
   end
@@ -199,6 +203,20 @@ sequenceDiagram
 
 ---
 
+## Payment 상태 정의
+
+| 상태 | 의미 | 전환 조건 |
+|---|---|---|
+| `PENDING` | Payment 생성 직후, PG 호출 전 | 최초 생성 시 |
+| `IN_PROGRESS` | PG 호출 성공, 콜백 대기 중 | PG로부터 `transactionKey` 수신 시 |
+| `SUCCESS` | 결제 성공 | PG 콜백 `status=SUCCESS` 수신 시 |
+| `FAILED` | 결제 실패 | PG 콜백 `status=FAILED` 수신 시 |
+| `ABANDONED` | 배치가 폴링 후 포기 | `PENDING` 또는 `IN_PROGRESS` 상태에서 배치 최대 조회 횟수 초과 시 |
+
+배치는 `PENDING` / `IN_PROGRESS` 상태의 Payment를 주기적으로 폴링하여 콜백 미수신 건을 보완한다.
+
+---
+
 ## 실패 시나리오 및 대응
 
 | 시나리오 | 원인 | 대응 |
@@ -213,15 +231,25 @@ sequenceDiagram
 
 ```
 [결제 요청]
-  유저 인증 + 주문 조회/검증
-  ── PG HTTP 호출 (트랜잭션 외부) ──
-  Payment INSERT (PENDING)
+  유저 인증 + 주문 조회/검증 + 중복 결제 확인
+  Payment INSERT (PENDING, transactionKey=null)
   ──────────────── COMMIT
 
-[콜백 수신 트랜잭션]
+  ── PG HTTP 호출 (트랜잭션 외부) ──
+
+  Payment UPDATE (IN_PROGRESS, transactionKey 세팅)
+  ──────────────── COMMIT
+
+[콜백 수신]
   Payment 상태 업데이트 (SUCCESS / FAILED)
   Order 상태 업데이트 (CONFIRMED / CANCELED)
   ──────────────── COMMIT
+
+[배치 폴링]
+  PENDING / IN_PROGRESS Payment 조회
+  PG 조회 API 호출
+  Payment 상태 업데이트 (SUCCESS / FAILED / ABANDONED)
+  ──────────────── COMMIT (건별)
 ```
 
 - PG HTTP 호출은 트랜잭션 외부에서 수행한다.
