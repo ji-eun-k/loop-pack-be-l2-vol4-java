@@ -5,14 +5,15 @@ import com.loopers.domain.order.Order;
 import com.loopers.domain.order.OrderStatus;
 import com.loopers.domain.payment.Payment;
 import com.loopers.domain.payment.PaymentStatus;
+import com.loopers.infrastructure.pg.PgApiResponse;
 import com.loopers.infrastructure.pg.PgFeignClient;
 import com.loopers.infrastructure.pg.PgPaymentRequest;
-import com.loopers.infrastructure.pg.PgPaymentResponse;
 import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import feign.FeignException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class PaymentFacade {
@@ -51,7 +52,7 @@ public class PaymentFacade {
             command.userId(), command.orderId(), command.cardType(), command.cardNo(), order.getTotalPrice().longValue()
         );
 
-        PgPaymentResponse pgResponse;
+        PgApiResponse.Payment pgResponse;
         try {
             pgResponse = pgFeignClient.requestPayment(
                 String.valueOf(command.userId()),
@@ -71,6 +72,7 @@ public class PaymentFacade {
         return new PaymentInfo.Create(pgResponse.transactionKey());
     }
 
+    @Transactional
     public void receiveCallback(PaymentCommand.Callback command) {
         Payment payment = paymentService.getByTransactionKey(command.transactionKey());
 

@@ -28,7 +28,7 @@ public class Payment extends BaseDomain {
         this.cardType = cardType;
         this.cardNo = cardNo;
         this.amount = amount;
-        this.status = PaymentStatus.PENDING;
+        this.status = PaymentStatus.CREATED;
         this.pollingCount = 0;
     }
 
@@ -53,16 +53,16 @@ public class Payment extends BaseDomain {
     }
 
     public void markInProgress(String transactionKey) {
-        if (this.status != PaymentStatus.PENDING) {
-            throw new CoreException(ErrorType.CONFLICT, "PENDING 상태의 결제만 처리 시작할 수 있습니다.");
+        if (this.status != PaymentStatus.CREATED) {
+            throw new CoreException(ErrorType.CONFLICT, "CREATED 상태의 결제만 처리 시작할 수 있습니다.");
         }
         this.transactionKey = transactionKey;
         this.status = PaymentStatus.IN_PROGRESS;
     }
 
     public void complete(PaymentStatus status, String reason) {
-        if (this.status != PaymentStatus.IN_PROGRESS) {
-            throw new CoreException(ErrorType.CONFLICT, "IN_PROGRESS 상태의 결제만 완료 처리할 수 있습니다.");
+        if (this.status != PaymentStatus.IN_PROGRESS && this.status != PaymentStatus.POLLING_EXHAUSTED) {
+            throw new CoreException(ErrorType.CONFLICT, "IN_PROGRESS 또는 POLLING_EXHAUSTED 상태의 결제만 완료 처리할 수 있습니다.");
         }
         this.status = status;
         this.reason = reason;
@@ -70,10 +70,10 @@ public class Payment extends BaseDomain {
     }
 
     public void abandon() {
-        if (this.status != PaymentStatus.PENDING && this.status != PaymentStatus.IN_PROGRESS) {
-            throw new CoreException(ErrorType.CONFLICT, "PENDING 또는 IN_PROGRESS 상태의 결제만 포기할 수 있습니다.");
+        if (this.status != PaymentStatus.CREATED && this.status != PaymentStatus.IN_PROGRESS) {
+            throw new CoreException(ErrorType.CONFLICT, "CREATED 또는 IN_PROGRESS 상태의 결제만 포기할 수 있습니다.");
         }
-        this.status = PaymentStatus.ABANDONED;
+        this.status = PaymentStatus.POLLING_EXHAUSTED;
     }
 
     public void recordPolling() {

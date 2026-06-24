@@ -1,8 +1,10 @@
 package com.loopers.infrastructure.pg;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.Request;
 import feign.RetryableException;
 import feign.Retryer;
+import feign.codec.Decoder;
 import feign.codec.ErrorDecoder;
 import org.springframework.context.annotation.Bean;
 import java.util.concurrent.TimeUnit;
@@ -18,6 +20,11 @@ public class PgFeignClientConfig {
     public Retryer retryer() {
         // 초기 100ms 대기, 최대 500ms, 총 3번 시도 (최초 1회 + 재시도 2회)
         return new Retryer.Default(100, 500, 3);
+    }
+
+    @Bean
+    public Decoder decoder() {
+        return new PgDataUnwrappingDecoder(new ObjectMapper());
     }
 
     @Bean

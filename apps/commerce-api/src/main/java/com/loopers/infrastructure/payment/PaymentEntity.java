@@ -60,7 +60,7 @@ public class PaymentEntity extends BaseEntity {
         this.cardType = cardType;
         this.cardNo = cardNo;
         this.amount = amount;
-        this.status = PaymentStatus.PENDING;
+        this.status = PaymentStatus.CREATED;
         this.pollingCount = 0;
     }
 

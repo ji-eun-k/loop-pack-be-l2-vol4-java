@@ -7,8 +7,8 @@ import com.loopers.domain.payment.CardType;
 import com.loopers.domain.payment.Payment;
 import com.loopers.domain.payment.PaymentStatus;
 import org.mockito.Mockito;
+import com.loopers.infrastructure.pg.PgApiResponse;
 import com.loopers.infrastructure.pg.PgFeignClient;
-import com.loopers.infrastructure.pg.PgPaymentResponse;
 import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import feign.FeignException;
@@ -125,7 +125,7 @@ class PaymentFacadeUnitTest {
             given(paymentService.hasSuccessPayment(ORDER_ID)).willReturn(false);
             given(paymentService.createPayment(anyLong(), anyLong(), any(), anyString(), anyLong())).willReturn(payment);
             given(pgFeignClient.requestPayment(anyString(), any()))
-                .willReturn(new PgPaymentResponse(transactionKey, "PENDING", null));
+                .willReturn(new PgApiResponse.Payment(transactionKey, "PENDING", null));
 
             // Act
             PaymentInfo.Create result = paymentFacade.requestPayment(command);
@@ -232,7 +232,7 @@ class PaymentFacadeUnitTest {
 
     private Payment pendingPayment() {
         return new Payment(1L, USER_ID, ORDER_ID, null, CardType.SAMSUNG, "1234-5678-9012-3456",
-            50000L, PaymentStatus.PENDING, null, 0, null, null, null, null, null);
+            50000L, PaymentStatus.CREATED, null, 0, null, null, null, null, null);
     }
 
     private Payment inProgressPayment() {

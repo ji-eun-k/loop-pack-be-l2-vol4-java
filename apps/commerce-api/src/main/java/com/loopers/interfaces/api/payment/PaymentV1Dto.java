@@ -10,7 +10,11 @@ public class PaymentV1Dto {
         Long orderId,
         CardType cardType,
         String cardNo
-    ) {}
+    ) {
+        public PaymentCommand.Request toCommand(Long userId) {
+            return new PaymentCommand.Request(userId, orderId, cardType, cardNo);
+        }
+    }
 
     public record PaymentResponse(
         String transactionKey

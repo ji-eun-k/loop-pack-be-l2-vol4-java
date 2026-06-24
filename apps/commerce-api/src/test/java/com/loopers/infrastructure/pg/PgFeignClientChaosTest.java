@@ -1,5 +1,6 @@
 package com.loopers.infrastructure.pg;
 
+import com.loopers.infrastructure.pg.PgApiResponse;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.http.Fault;
@@ -16,7 +17,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectFactory;
 import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
-import org.springframework.cloud.openfeign.support.SpringDecoder;
 import org.springframework.cloud.openfeign.support.SpringEncoder;
 import org.springframework.cloud.openfeign.support.SpringMvcContract;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -59,7 +59,7 @@ class PgFeignClientChaosTest {
         pgFeignClient = Feign.builder()
             .contract(new SpringMvcContract())
             .encoder(new SpringEncoder(messageConverters))
-            .decoder(new SpringDecoder(messageConverters))
+            .decoder(config.decoder())
             .retryer(config.retryer())
             .errorDecoder(config.errorDecoder())
             .target(PgFeignClient.class, wireMockServer.baseUrl());
@@ -102,10 +102,10 @@ class PgFeignClientChaosTest {
             wireMockServer.stubFor(post(urlEqualTo("/api/v1/payments"))
                 .inScenario("retry-success")
                 .whenScenarioStateIs("2nd-fail")
-                .willReturn(okJson("{\"transactionKey\":\"20260623:TR:abc123\",\"status\":\"PENDING\",\"reason\":null}")));
+                .willReturn(okJson("{\"data\":{\"transactionKey\":\"20260623:TR:abc123\",\"status\":\"PENDING\",\"reason\":null}}")));
 
             // Act
-            PgPaymentResponse response = pgFeignClient.requestPayment("1", sampleRequest());
+            PgApiResponse.Payment response = pgFeignClient.requestPayment("1", sampleRequest());
 
             // Assert
             assertThat(response.transactionKey()).isEqualTo("20260623:TR:abc123");
@@ -125,10 +125,10 @@ class PgFeignClientChaosTest {
             wireMockServer.stubFor(post(urlEqualTo("/api/v1/payments"))
                 .inScenario("early-retry-success")
                 .whenScenarioStateIs("1st-fail")
-                .willReturn(okJson("{\"transactionKey\":\"20260623:TR:def456\",\"status\":\"PENDING\",\"reason\":null}")));
+                .willReturn(okJson("{\"data\":{\"transactionKey\":\"20260623:TR:def456\",\"status\":\"PENDING\",\"reason\":null}}")));
 
             // Act
-            PgPaymentResponse response = pgFeignClient.requestPayment("1", sampleRequest());
+            PgApiResponse.Payment response = pgFeignClient.requestPayment("1", sampleRequest());
 
             // Assert
             assertThat(response.transactionKey()).isEqualTo("20260623:TR:def456");
@@ -144,9 +144,9 @@ class PgFeignClientChaosTest {
         @Test
         void returns_success_onFirstAttempt() {
             wireMockServer.stubFor(post(urlEqualTo("/api/v1/payments"))
-                .willReturn(okJson("{\"transactionKey\":\"20260623:TR:abc123\",\"status\":\"PENDING\",\"reason\":null}")));
+                .willReturn(okJson("{\"data\":{\"transactionKey\":\"20260623:TR:abc123\",\"status\":\"PENDING\",\"reason\":null}}")));
 
-            PgPaymentResponse response = pgFeignClient.requestPayment("1", sampleRequest());
+            PgApiResponse.Payment response = pgFeignClient.requestPayment("1", sampleRequest());
 
             assertThat(response.transactionKey()).isEqualTo("20260623:TR:abc123");
             wireMockServer.verify(1, postRequestedFor(urlEqualTo("/api/v1/payments")));
@@ -185,7 +185,7 @@ class PgFeignClientChaosTest {
             pgFeignClientWithShortTimeout = Feign.builder()
                 .contract(new SpringMvcContract())
                 .encoder(new SpringEncoder(messageConverters))
-                .decoder(new SpringDecoder(messageConverters))
+                .decoder(config.decoder())
                 .retryer(config.retryer())
                 .errorDecoder(config.errorDecoder())
                 .options(new Request.Options(3000, TimeUnit.MILLISECONDS, 5000, TimeUnit.MILLISECONDS, true))

@@ -48,7 +48,7 @@ class PaymentServiceIntegrationTest {
                 () -> assertThat(payment.getId()).isNotNull(),
                 () -> assertThat(payment.getOrderId()).isEqualTo(1L),
                 () -> assertThat(payment.getTransactionKey()).isNull(),
-                () -> assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING)
+                () -> assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CREATED)
             );
         }
     }

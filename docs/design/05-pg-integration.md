@@ -257,14 +257,14 @@ sequenceDiagram
 | `IN_PROGRESS` | PG 호출 성공, 콜백 대기 중 | PG로부터 `transactionKey` 수신 시 |
 | `SUCCESS` | 결제 성공 | PG 콜백 `status=SUCCESS` 수신 시 |
 | `FAILED` | 결제 실패 | PG 콜백 `status=FAILED` 수신 시 |
-| `ABANDONED` | 배치가 폴링 후 포기 | `PENDING` 또는 `IN_PROGRESS` 상태에서 배치 최대 조회 횟수 초과 시 |
+| `POLLING_EXHAUSTED` | 배치가 폴링 후 포기 | `PENDING` 또는 `IN_PROGRESS` 상태에서 배치 최대 조회 횟수 초과 시 |
 
 배치는 `PENDING` / `IN_PROGRESS` 상태의 Payment를 주기적으로 폴링하여 콜백 미수신 건을 보완한다.
 두 상태는 PG 조회 방법이 다르므로 배치에서 분기 처리한다.
 
 | 상태 | transactionKey | 배치 동작 | PG 조회 API |
 |---|---|---|---|
-| `PENDING` | null | PG에 트랜잭션 없음. 폴링 횟수 초과 시 `ABANDONED` | 사용 안 함 |
+| `PENDING` | null | PG에 트랜잭션 없음. 폴링 횟수 초과 시 `POLLING_EXHAUSTED` | 사용 안 함 |
 | `IN_PROGRESS` | 있음 | `GET /{transactionKey}` 로 최종 상태 확인 후 반영 | `GET /api/v1/payments/{transactionKey}` |
 
 ---
@@ -274,7 +274,7 @@ sequenceDiagram
 | 시나리오 | 원인 | 대응 |
 |---|---|---|
 | PG 요청 즉시 실패 | 서버 불안정 (40% 확률) | 최대 2회 재시도 (총 3회 시도) 후 실패 시 `503` 반환, Payment는 `PENDING` 유지 |
-| PG 요청 최종 실패 후 Payment `PENDING` 방치 | 재시도 모두 소진 | 배치가 폴링 횟수 초과 시 `ABANDONED` 처리 |
+| PG 요청 최종 실패 후 Payment `PENDING` 방치 | 재시도 모두 소진 | 배치가 폴링 횟수 초과 시 `POLLING_EXHAUSTED` 처리 |
 | 콜백 미수신 (`IN_PROGRESS` 방치) | 네트워크 단절 또는 PG 처리 지연 | 배치가 `GET /{transactionKey}` 로 최종 상태 확인 후 반영 |
 | 콜백 중복 수신 | PG 재전송 | `transactionKey` 기준 멱등 처리 (이미 종료 상태면 무시) |
 
@@ -303,14 +303,14 @@ sequenceDiagram
 
   PENDING (transactionKey = null)
     → PG에 트랜잭션 없음
-    → 폴링 횟수 초과 시 Payment ABANDONED
+    → 폴링 횟수 초과 시 Payment POLLING_EXHAUSTED
     ──────────────── COMMIT (건별)
 
   IN_PROGRESS (transactionKey 있음)
     → GET /api/v1/payments/{transactionKey} 호출
     → SUCCESS: Payment SUCCESS, Order CONFIRMED
     → FAILED:  Payment FAILED,  Order CANCELED
-    → 폴링 횟수 초과 시 Payment ABANDONED
+    → 폴링 횟수 초과 시 Payment POLLING_EXHAUSTED
     ──────────────── COMMIT (건별)
 ```
 

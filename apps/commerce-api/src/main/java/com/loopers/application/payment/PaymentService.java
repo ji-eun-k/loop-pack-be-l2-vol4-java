@@ -62,6 +62,6 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<Payment> findAllPendingOrInProgress() {
-        return paymentRepository.findAllByStatusIn(List.of(PaymentStatus.PENDING, PaymentStatus.IN_PROGRESS));
+        return paymentRepository.findAllByStatusIn(List.of(PaymentStatus.CREATED, PaymentStatus.IN_PROGRESS));
     }
 }

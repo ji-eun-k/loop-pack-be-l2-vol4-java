@@ -38,7 +38,7 @@ class PaymentTest {
                 () -> assertThat(payment.getCardNo()).isEqualTo(cardNo),
                 () -> assertThat(payment.getAmount()).isEqualTo(amount),
                 () -> assertThat(payment.getTransactionKey()).isNull(),
-                () -> assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING),
+                () -> assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CREATED),
                 () -> assertThat(payment.getReason()).isNull(),
                 () -> assertThat(payment.getPollingCount()).isZero(),
                 () -> assertThat(payment.getLastPolledAt()).isNull(),
@@ -125,8 +125,28 @@ class PaymentTest {
         }
 
         @Test
-        @DisplayName("IN_PROGRESS가 아닌 상태에서 complete를 호출하면 예외가 발생한다.")
-        void throwsException_whenCompleteCalledOnNonInProgressStatus() {
+        @DisplayName("POLLING_EXHAUSTED 상태에서 SUCCESS 콜백을 수신하면 SUCCESS로 전환된다.")
+        void completesPayment_withSuccess_whenStatusIsAbandoned() {
+            // Arrange
+            Payment payment = new Payment(1L, 1L, CardType.SAMSUNG, "1234-5678-9012-3456", 50000L);
+            payment.markInProgress("20260622:TR:a1b2c3");
+            payment.abandon();
+            String reason = "정상 승인되었습니다.";
+
+            // Act
+            payment.complete(PaymentStatus.SUCCESS, reason);
+
+            // Assert
+            assertAll(
+                () -> assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS),
+                () -> assertThat(payment.getReason()).isEqualTo(reason),
+                () -> assertThat(payment.getCompletedAt()).isNotNull()
+            );
+        }
+
+        @Test
+        @DisplayName("PENDING 상태에서 complete를 호출하면 예외가 발생한다.")
+        void throwsException_whenCompleteCalledOnPendingStatus() {
             // Arrange
             Payment payment = new Payment(1L, 1L, CardType.SAMSUNG, "1234-5678-9012-3456", 50000L);
 
@@ -142,7 +162,7 @@ class PaymentTest {
     class Abandon {
 
         @Test
-        @DisplayName("PENDING 상태에서 abandon을 호출하면 ABANDONED로 전환된다.")
+        @DisplayName("PENDING 상태에서 abandon을 호출하면 POLLING_EXHAUSTED로 전환된다.")
         void abandonsPayment_whenStatusIsPending() {
             // Arrange
             Payment payment = new Payment(1L, 1L, CardType.SAMSUNG, "1234-5678-9012-3456", 50000L);
@@ -151,11 +171,11 @@ class PaymentTest {
             payment.abandon();
 
             // Assert
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.ABANDONED);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.POLLING_EXHAUSTED);
         }
 
         @Test
-        @DisplayName("IN_PROGRESS 상태에서 abandon을 호출하면 ABANDONED로 전환된다.")
+        @DisplayName("IN_PROGRESS 상태에서 abandon을 호출하면 POLLING_EXHAUSTED로 전환된다.")
         void abandonsPayment_whenStatusIsInProgress() {
             // Arrange
             Payment payment = new Payment(1L, 1L, CardType.SAMSUNG, "1234-5678-9012-3456", 50000L);
@@ -165,7 +185,7 @@ class PaymentTest {
             payment.abandon();
 
             // Assert
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.ABANDONED);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.POLLING_EXHAUSTED);
         }
 
         @Test
