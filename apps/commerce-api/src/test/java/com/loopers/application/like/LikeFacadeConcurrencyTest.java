@@ -1,5 +1,6 @@
 package com.loopers.application.like;
 
+import com.loopers.TestAsyncConfig;
 import com.loopers.application.product.LikeCountSyncScheduler;
 import com.loopers.infrastructure.brand.BrandEntity;
 import com.loopers.infrastructure.brand.BrandJpaRepository;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
@@ -23,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 
+@Import(TestAsyncConfig.class)
 @SpringBootTest
 class LikeFacadeConcurrencyTest {
 

@@ -1,6 +1,8 @@
 package com.loopers.application.order;
 
 import com.loopers.application.coupon.CouponService;
+import com.loopers.application.event.UserActionEvent;
+import com.loopers.application.event.UserActionType;
 import com.loopers.domain.order.Order;
 import com.loopers.domain.order.OrderItem;
 import com.loopers.application.product.ProductService;
@@ -9,6 +11,7 @@ import com.loopers.domain.product.Product;
 import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +28,7 @@ public class OrderFacade {
     private final OrderService orderService;
     private final CouponService couponService;
     private final OutboxService outboxService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public OrderInfo.Create createOrder(OrderCommand.Create command) {
@@ -51,6 +55,7 @@ public class OrderFacade {
 
         Order order = orderService.createOrder(command.userId(), command.issuedCouponId(), originalPrice, discountAmount, items);
         outboxService.publishOrderCreatedEvent(order);
+        eventPublisher.publishEvent(new UserActionEvent(UserActionType.ORDER_CREATED, command.userId(), order.getId()));
         return OrderInfo.Create.from(order);
     }
 

@@ -1,5 +1,7 @@
 package com.loopers.application.payment;
 
+import com.loopers.application.event.UserActionEvent;
+import com.loopers.application.event.UserActionType;
 import com.loopers.application.order.OrderService;
 import com.loopers.domain.order.Order;
 import com.loopers.domain.order.OrderStatus;
@@ -12,29 +14,23 @@ import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import feign.FeignException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+@RequiredArgsConstructor
 @Component
 public class PaymentFacade {
 
     private final OrderService orderService;
     private final PaymentService paymentService;
     private final PgFeignClient pgFeignClient;
-    private final String pgCallbackUrl;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public PaymentFacade(
-        OrderService orderService,
-        PaymentService paymentService,
-        PgFeignClient pgFeignClient,
-        @Value("${pg.callback-url}") String pgCallbackUrl
-    ) {
-        this.orderService = orderService;
-        this.paymentService = paymentService;
-        this.pgFeignClient = pgFeignClient;
-        this.pgCallbackUrl = pgCallbackUrl;
-    }
+    @Value("${pg.callback-url}")
+    private String pgCallbackUrl;
 
     public PaymentInfo.Create requestPayment(PaymentCommand.Request command) {
         Order order = orderService.getOrder(command.orderId());
@@ -84,7 +80,8 @@ public class PaymentFacade {
         paymentService.complete(command.transactionKey(), command.status(), command.reason());
 
         if (command.status() == PaymentStatus.SUCCESS) {
-            orderService.confirm(payment.getOrderId());
+            eventPublisher.publishEvent(new PaymentCompletedEvent(payment.getOrderId(), payment.getUserId()));
+            eventPublisher.publishEvent(new UserActionEvent(UserActionType.PAYMENT_COMPLETED, payment.getUserId(), payment.getOrderId()));
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.loopers.application.like;
 
+import com.loopers.application.event.UserActionEvent;
+import com.loopers.application.event.UserActionType;
 import com.loopers.application.product.ProductInfo;
 import com.loopers.application.like.LikeService;
 import com.loopers.application.product.ProductService;
@@ -26,6 +28,7 @@ public class LikeFacade {
         boolean added = likeService.like(command.userId(), command.productId());
         if (added) {
             eventPublisher.publishEvent(new LikeCountChangedEvent(command.productId(), true));
+            eventPublisher.publishEvent(new UserActionEvent(UserActionType.PRODUCT_LIKE, command.userId(), command.productId()));
         }
     }
 
@@ -35,6 +38,7 @@ public class LikeFacade {
         boolean removed = likeService.unlike(command.userId(), command.productId());
         if (removed) {
             eventPublisher.publishEvent(new LikeCountChangedEvent(command.productId(), false));
+            eventPublisher.publishEvent(new UserActionEvent(UserActionType.PRODUCT_UNLIKE, command.userId(), command.productId()));
         }
     }
 
