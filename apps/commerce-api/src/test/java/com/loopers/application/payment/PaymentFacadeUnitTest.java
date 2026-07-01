@@ -7,7 +7,6 @@ import com.loopers.domain.payment.CardType;
 import com.loopers.domain.payment.Payment;
 import com.loopers.domain.payment.PaymentStatus;
 import org.mockito.Mockito;
-import org.springframework.context.ApplicationEventPublisher;
 import com.loopers.infrastructure.pg.PgApiResponse;
 import com.loopers.infrastructure.pg.PgFeignClient;
 import com.loopers.support.error.CoreException;
@@ -43,9 +42,6 @@ class PaymentFacadeUnitTest {
     @Mock
     private PgFeignClient pgFeignClient;
 
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
-
     private PaymentFacade paymentFacade;
 
     private static final Long USER_ID = 1L;
@@ -53,7 +49,7 @@ class PaymentFacadeUnitTest {
 
     @BeforeEach
     void setUp() {
-        paymentFacade = new PaymentFacade(orderService, paymentService, pgFeignClient, eventPublisher);
+        paymentFacade = new PaymentFacade(orderService, paymentService, pgFeignClient);
     }
 
     @DisplayName("결제를 요청할 때,")
@@ -162,17 +158,16 @@ class PaymentFacadeUnitTest {
 
         private static final String TRANSACTION_KEY = "20260623:TR:abc123";
 
-        @DisplayName("SUCCESS 콜백이면 결제를 SUCCESS로 완료하고 PaymentCompletedEvent를 발행한다.")
+        @DisplayName("SUCCESS 콜백이면 결제를 SUCCESS로 완료하고 주문을 확정한다.")
         @Test
-        void completesSuccessAndPublishesEvent_whenCallbackIsSuccess() {
+        void completesSuccessAndConfirmsOrder_whenCallbackIsSuccess() {
             Payment inProgressPayment = inProgressPayment();
             given(paymentService.getByTransactionKey(TRANSACTION_KEY)).willReturn(inProgressPayment);
 
             paymentFacade.receiveCallback(new PaymentCommand.Callback(TRANSACTION_KEY, PaymentStatus.SUCCESS, "정상 승인되었습니다."));
 
             then(paymentService).should().complete(TRANSACTION_KEY, PaymentStatus.SUCCESS, "정상 승인되었습니다.");
-            then(eventPublisher).should().publishEvent(new PaymentCompletedEvent(ORDER_ID, USER_ID));
-            then(orderService).should(Mockito.never()).confirm(any());
+            then(orderService).should().confirm(ORDER_ID);
         }
 
         @DisplayName("FAILED 콜백이면 결제만 FAILED로 완료하고 이벤트를 발행하지 않는다.")
@@ -184,7 +179,7 @@ class PaymentFacadeUnitTest {
             paymentFacade.receiveCallback(new PaymentCommand.Callback(TRANSACTION_KEY, PaymentStatus.FAILED, "한도초과입니다."));
 
             then(paymentService).should().complete(TRANSACTION_KEY, PaymentStatus.FAILED, "한도초과입니다.");
-            then(eventPublisher).should(Mockito.never()).publishEvent(any());
+            then(orderService).should(Mockito.never()).confirm(any());
         }
 
         @DisplayName("이미 SUCCESS 상태의 결제면 아무것도 하지 않는다.")

@@ -1,10 +1,9 @@
 package com.loopers.application.payment;
 
-import com.loopers.application.event.UserActionEvent;
-import com.loopers.application.event.UserActionType;
 import com.loopers.application.order.OrderService;
 import com.loopers.domain.order.Order;
 import com.loopers.domain.order.OrderStatus;
+
 import com.loopers.domain.payment.Payment;
 import com.loopers.domain.payment.PaymentStatus;
 import com.loopers.infrastructure.pg.PgApiResponse;
@@ -16,7 +15,6 @@ import feign.FeignException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,7 +25,6 @@ public class PaymentFacade {
     private final OrderService orderService;
     private final PaymentService paymentService;
     private final PgFeignClient pgFeignClient;
-    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${pg.callback-url}")
     private String pgCallbackUrl;
@@ -80,8 +77,7 @@ public class PaymentFacade {
         paymentService.complete(command.transactionKey(), command.status(), command.reason());
 
         if (command.status() == PaymentStatus.SUCCESS) {
-            eventPublisher.publishEvent(new PaymentCompletedEvent(payment.getOrderId(), payment.getUserId()));
-            eventPublisher.publishEvent(new UserActionEvent(UserActionType.PAYMENT_COMPLETED, payment.getUserId(), payment.getOrderId()));
+            orderService.confirm(payment.getOrderId());
         }
     }
 }

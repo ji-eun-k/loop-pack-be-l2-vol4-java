@@ -30,6 +30,15 @@ public class OutboxEventEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String payload;
 
+    @Column(name = "topic_name", nullable = false)
+    private String topicName;
+
+    @Column(name = "partition_key", nullable = false)
+    private String partitionKey;
+
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OutboxStatus status;
@@ -37,17 +46,23 @@ public class OutboxEventEntity {
     @Column(name = "retry_count", nullable = false)
     private int retryCount;
 
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private ZonedDateTime createdAt;
 
-    @Column(name = "processed_at")
-    private ZonedDateTime processedAt;
+    @Column(name = "published_at")
+    private ZonedDateTime publishedAt;
 
     protected OutboxEventEntity() {}
 
-    public OutboxEventEntity(String eventType, String payload) {
+    public OutboxEventEntity(String eventType, String payload, String topicName, String partitionKey, String idempotencyKey) {
         this.eventType = eventType;
         this.payload = payload;
+        this.topicName = topicName;
+        this.partitionKey = partitionKey;
+        this.idempotencyKey = idempotencyKey;
         this.status = OutboxStatus.PENDING;
         this.retryCount = 0;
     }
@@ -58,12 +73,14 @@ public class OutboxEventEntity {
     }
 
     public OutboxEvent toDomain() {
-        return new OutboxEvent(id, eventType, payload, status, retryCount, createdAt, processedAt);
+        return new OutboxEvent(id, eventType, payload, topicName, partitionKey,
+            idempotencyKey, status, retryCount, errorMessage, createdAt, publishedAt);
     }
 
     public void updateFrom(OutboxEvent domain) {
         this.status = domain.getStatus();
-        this.processedAt = domain.getProcessedAt();
         this.retryCount = domain.getRetryCount();
+        this.errorMessage = domain.getErrorMessage();
+        this.publishedAt = domain.getPublishedAt();
     }
 }

@@ -52,8 +52,6 @@ public class OrderFacade {
         }
 
         Order order = orderService.createOrder(command.userId(), command.issuedCouponId(), originalPrice, discountAmount, items);
-        eventPublisher.publishEvent(new OrderCreatedEvent(order));
-        eventPublisher.publishEvent(new UserActionEvent(UserActionType.ORDER_CREATED, command.userId(), order.getId()));
         return OrderInfo.Create.from(order);
     }
 
