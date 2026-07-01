@@ -2,12 +2,14 @@ package com.loopers.confg.kafka;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.converter.BatchMessagingMessageConverter;
@@ -44,6 +46,16 @@ public class KafkaConfig {
     @Bean
     public KafkaTemplate<Object, Object> kafkaTemplate(ProducerFactory<Object, Object> producerFactory) {
         return new KafkaTemplate<>(producerFactory);
+    }
+
+    @Bean
+    public NewTopic catalogEventsTopic() {
+        return TopicBuilder.name("catalog-events-v1").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic catalogViewEventsTopic() {
+        return TopicBuilder.name("catalog-view-events-v1").partitions(3).replicas(1).build();
     }
 
     @Bean

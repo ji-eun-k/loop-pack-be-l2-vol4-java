@@ -34,12 +34,12 @@ class CatalogMetricsConsumerIntegrationTest {
     static class TopicConfig {
         @Bean
         public NewTopic catalogEventsTopic() {
-            return new NewTopic("catalog-events-v1", 1, (short) 1);
+            return new NewTopic("catalog-events-v1", 3, (short) 1);
         }
 
         @Bean
         public NewTopic catalogViewEventsTopic() {
-            return new NewTopic("catalog-view-events-v1", 1, (short) 1);
+            return new NewTopic("catalog-view-events-v1", 3, (short) 1);
         }
     }
 
