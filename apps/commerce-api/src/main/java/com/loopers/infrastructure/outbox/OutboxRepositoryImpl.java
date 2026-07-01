@@ -22,8 +22,8 @@ public class OutboxRepositoryImpl implements OutboxRepository {
             return entity.toDomain();
         }
         return outboxJpaRepository.save(new OutboxEventEntity(
-            event.getEventType(), event.getPayload(),
-            event.getTopicName(), event.getPartitionKey(), event.getIdempotencyKey()
+            event.getEventId(), event.getEventType(), event.getPayload(),
+            event.getTopicName(), event.getPartitionKey()
         )).toDomain();
     }
 

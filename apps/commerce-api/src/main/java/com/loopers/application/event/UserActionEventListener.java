@@ -17,7 +17,6 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -30,7 +29,7 @@ public class UserActionEventListener {
 
     private final OrderService orderService;
     private final OutboxService outboxService;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final KafkaTemplate<Object, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
     @Async
@@ -85,16 +84,16 @@ public class UserActionEventListener {
             "productQtyMap", productQtyMap
         ));
 
-        return new OutboxEvent("OrderItemSoldEvent", payload, TOPIC, orderId.toString(), orderId.toString());
+        return new OutboxEvent("OrderItemSoldEvent", payload, TOPIC, orderId.toString());
     }
 
     private OutboxEvent buildProductLikedEvent(UserActionEvent event) throws JsonProcessingException {
         String payload = objectMapper.writeValueAsString(Map.of("productId", event.resourceId()));
-        return new OutboxEvent("ProductLikedEvent", payload, TOPIC, event.userId().toString(), UUID.randomUUID().toString());
+        return new OutboxEvent("ProductLikedEvent", payload, TOPIC, event.userId().toString());
     }
 
     private OutboxEvent buildProductUnlikedEvent(UserActionEvent event) throws JsonProcessingException {
         String payload = objectMapper.writeValueAsString(Map.of("productId", event.resourceId()));
-        return new OutboxEvent("ProductUnlikedEvent", payload, TOPIC, event.userId().toString(), UUID.randomUUID().toString());
+        return new OutboxEvent("ProductUnlikedEvent", payload, TOPIC, event.userId().toString());
     }
 }

@@ -13,6 +13,6 @@ public interface OutboxJpaRepository extends JpaRepository<OutboxEventEntity, Lo
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
-    @Query("SELECT o FROM OutboxEvent o WHERE o.status = 'PENDING' ORDER BY o.id ASC LIMIT 500")
+    @Query("SELECT o FROM OutboxEvent o WHERE o.status = 'PENDING' OR (o.status = 'FAILED' AND o.retryCount < 5) ORDER BY o.id ASC LIMIT 500")
     List<OutboxEventEntity> findPendingWithSkipLocked();
 }

@@ -24,6 +24,9 @@ public class OutboxEventEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "event_id", nullable = false, unique = true, updatable = false)
+    private String eventId;
+
     @Column(name = "event_type", nullable = false)
     private String eventType;
 
@@ -35,9 +38,6 @@ public class OutboxEventEntity {
 
     @Column(name = "partition_key", nullable = false)
     private String partitionKey;
-
-    @Column(name = "idempotency_key", unique = true)
-    private String idempotencyKey;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -57,12 +57,12 @@ public class OutboxEventEntity {
 
     protected OutboxEventEntity() {}
 
-    public OutboxEventEntity(String eventType, String payload, String topicName, String partitionKey, String idempotencyKey) {
+    public OutboxEventEntity(String eventId, String eventType, String payload, String topicName, String partitionKey) {
+        this.eventId = eventId;
         this.eventType = eventType;
         this.payload = payload;
         this.topicName = topicName;
         this.partitionKey = partitionKey;
-        this.idempotencyKey = idempotencyKey;
         this.status = OutboxStatus.PENDING;
         this.retryCount = 0;
     }
@@ -73,8 +73,8 @@ public class OutboxEventEntity {
     }
 
     public OutboxEvent toDomain() {
-        return new OutboxEvent(id, eventType, payload, topicName, partitionKey,
-            idempotencyKey, status, retryCount, errorMessage, createdAt, publishedAt);
+        return new OutboxEvent(id, eventId, eventType, payload, topicName, partitionKey,
+            status, retryCount, errorMessage, createdAt, publishedAt);
     }
 
     public void updateFrom(OutboxEvent domain) {

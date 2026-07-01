@@ -4,11 +4,13 @@ import com.loopers.domain.outbox.OutboxEvent;
 import com.loopers.domain.outbox.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Slf4j
@@ -16,10 +18,10 @@ import java.util.List;
 @Component
 public class OutboxEventPublishScheduler {
 
-    private static final int MAX_RETRY_COUNT = 5;
+    static final int MAX_RETRY_COUNT = 5;
 
     private final OutboxRepository outboxRepository;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final KafkaTemplate<Object, Object> kafkaTemplate;
 
     @Scheduled(fixedDelay = 1_000)
     @Transactional
@@ -27,7 +29,12 @@ public class OutboxEventPublishScheduler {
         List<OutboxEvent> pending = outboxRepository.findPending();
         for (OutboxEvent event : pending) {
             try {
-                kafkaTemplate.send(event.getTopicName(), event.getPartitionKey(), event.getPayload()).get();
+                ProducerRecord<Object, Object> record = new ProducerRecord<>(
+                    event.getTopicName(), null, event.getPartitionKey(), event.getPayload()
+                );
+                record.headers().add("X-Event-Type", event.getEventType().getBytes(StandardCharsets.UTF_8));
+                record.headers().add("X-Event-Id", event.getEventId().getBytes(StandardCharsets.UTF_8));
+                kafkaTemplate.send(record).get();
                 event.markPublished();
             } catch (Exception e) {
                 event.markFailed(e.getMessage());

@@ -5,42 +5,43 @@ import com.loopers.support.error.ErrorType;
 import lombok.Getter;
 
 import java.time.ZonedDateTime;
+import java.util.UUID;
 
 @Getter
 public class OutboxEvent {
 
     private Long id;
+    private String eventId;
     private String eventType;
     private String payload;
     private String topicName;
     private String partitionKey;
-    private String idempotencyKey;
     private OutboxStatus status;
     private int retryCount;
     private String errorMessage;
     private ZonedDateTime createdAt;
     private ZonedDateTime publishedAt;
 
-    public OutboxEvent(String eventType, String payload, String topicName, String partitionKey, String idempotencyKey) {
+    public OutboxEvent(String eventType, String payload, String topicName, String partitionKey) {
         validate(eventType, payload, topicName, partitionKey);
+        this.eventId = UUID.randomUUID().toString();
         this.eventType = eventType;
         this.payload = payload;
         this.topicName = topicName;
         this.partitionKey = partitionKey;
-        this.idempotencyKey = idempotencyKey;
         this.status = OutboxStatus.PENDING;
         this.retryCount = 0;
     }
 
-    public OutboxEvent(Long id, String eventType, String payload, String topicName, String partitionKey,
-                       String idempotencyKey, OutboxStatus status, int retryCount,
+    public OutboxEvent(Long id, String eventId, String eventType, String payload, String topicName, String partitionKey,
+                       OutboxStatus status, int retryCount,
                        String errorMessage, ZonedDateTime createdAt, ZonedDateTime publishedAt) {
         this.id = id;
+        this.eventId = eventId;
         this.eventType = eventType;
         this.payload = payload;
         this.topicName = topicName;
         this.partitionKey = partitionKey;
-        this.idempotencyKey = idempotencyKey;
         this.status = status;
         this.retryCount = retryCount;
         this.errorMessage = errorMessage;
