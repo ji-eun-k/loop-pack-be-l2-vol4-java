@@ -6,7 +6,6 @@ import com.loopers.testcontainers.KafkaTestContainersConfig;
 import com.loopers.testcontainers.MySqlTestContainersConfig;
 import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,8 +13,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -29,19 +26,6 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest
 @Import({MySqlTestContainersConfig.class, RedisTestContainersConfig.class, KafkaTestContainersConfig.class})
 class CatalogMetricsConsumerIntegrationTest {
-
-    @TestConfiguration
-    static class TopicConfig {
-        @Bean
-        public NewTopic catalogEventsTopic() {
-            return new NewTopic("catalog-events-v1", 3, (short) 1);
-        }
-
-        @Bean
-        public NewTopic catalogViewEventsTopic() {
-            return new NewTopic("catalog-view-events-v1", 3, (short) 1);
-        }
-    }
 
     @Autowired
     private KafkaTemplate<Object, Object> kafkaTemplate;
