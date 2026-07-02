@@ -17,7 +17,7 @@ public class CouponAdminV1Dto {
             @NotNull(message = "할인 값은 필수입니다.") BigDecimal value,
             BigDecimal minOrderAmount,
             @NotNull(message = "만료일은 필수입니다.") ZonedDateTime expiredAt,
-            int maxIssuanceCount
+            Integer maxIssuanceCount
     ) {}
 
     public record CouponUpdateRequest(
@@ -26,7 +26,7 @@ public class CouponAdminV1Dto {
             @NotNull(message = "할인 값은 필수입니다.") BigDecimal value,
             BigDecimal minOrderAmount,
             @NotNull(message = "만료일은 필수입니다.") ZonedDateTime expiredAt,
-            int maxIssuanceCount
+            Integer maxIssuanceCount
     ) {}
 
     public record CouponResponse(

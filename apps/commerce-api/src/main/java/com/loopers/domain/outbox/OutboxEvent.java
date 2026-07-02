@@ -31,6 +31,7 @@ public class OutboxEvent {
         this.partitionKey = partitionKey;
         this.status = OutboxStatus.PENDING;
         this.retryCount = 0;
+        this.createdAt = ZonedDateTime.now();
     }
 
     public OutboxEvent(Long id, String eventId, String eventType, String payload, String topicName, String partitionKey,

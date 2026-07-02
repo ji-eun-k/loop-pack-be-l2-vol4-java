@@ -49,7 +49,8 @@ public class CouponAdminV1Controller {
             @RequestBody @Valid CouponAdminV1Dto.CouponCreateRequest request
     ) {
         Coupon coupon = couponService.createCoupon(
-            new CouponCommand.Create(request.name(), request.type(), request.value(), request.minOrderAmount(), request.expiredAt(), request.maxIssuanceCount())
+            new CouponCommand.Create(request.name(), request.type(), request.value(), request.minOrderAmount(), request.expiredAt(),
+                request.maxIssuanceCount() != null ? request.maxIssuanceCount() : 0)
         );
         return ApiResponse.success(CouponAdminV1Dto.CouponResponse.from(CouponInfo.Detail.from(coupon)));
     }
@@ -61,7 +62,8 @@ public class CouponAdminV1Controller {
     ) {
         Coupon coupon = couponService.updateCoupon(
             couponId,
-            new CouponCommand.Update(request.name(), request.type(), request.value(), request.minOrderAmount(), request.expiredAt(), request.maxIssuanceCount())
+            new CouponCommand.Update(request.name(), request.type(), request.value(), request.minOrderAmount(), request.expiredAt(),
+                request.maxIssuanceCount() != null ? request.maxIssuanceCount() : 0)
         );
         return ApiResponse.success(CouponAdminV1Dto.CouponResponse.from(CouponInfo.Detail.from(coupon)));
     }
