@@ -34,6 +34,7 @@ public class OutboxEventPublishScheduler {
                 );
                 record.headers().add("X-Event-Type", event.getEventType().getBytes(StandardCharsets.UTF_8));
                 record.headers().add("X-Event-Id", event.getEventId().getBytes(StandardCharsets.UTF_8));
+                record.headers().add("X-Event-Occurred-At", event.getCreatedAt().toString().getBytes(StandardCharsets.UTF_8));
                 kafkaTemplate.send(record).get();
                 event.markPublished();
             } catch (Exception e) {

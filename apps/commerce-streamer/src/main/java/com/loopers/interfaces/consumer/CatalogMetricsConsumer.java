@@ -30,7 +30,9 @@ public class CatalogMetricsConsumer {
         for (ConsumerRecord<Object, Object> record : records) {
             String eventType = extractHeader(record, "X-Event-Type");
             String eventId = extractHeader(record, "X-Event-Id");
+            String occurredAt = extractHeader(record, "X-Event-Occurred-At");
             String payload = record.value().toString();
+            log.debug("[CATALOG] 이벤트 수신 — eventType={}, eventId={}, occurredAt={}", eventType, eventId, occurredAt);
             try {
                 processor.process(eventType, eventId, record.topic(), payload);
             } catch (Exception e) {
