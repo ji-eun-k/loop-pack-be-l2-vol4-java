@@ -34,19 +34,27 @@ public class CouponEntity extends BaseEntity {
     @Column(name = "expired_at", nullable = false)
     private ZonedDateTime expiredAt;
 
+    @Column(name = "max_issuance_count", nullable = false)
+    private int maxIssuanceCount;
+
+    @Column(name = "issued_count", nullable = false)
+    private int issuedCount;
+
     protected CouponEntity() {}
 
-    public CouponEntity(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt) {
+    public CouponEntity(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt, int maxIssuanceCount) {
         this.name = name;
         this.type = type;
         this.value = value;
         this.minOrderAmount = minOrderAmount;
         this.expiredAt = expiredAt;
+        this.maxIssuanceCount = maxIssuanceCount;
+        this.issuedCount = 0;
     }
 
     public Coupon toDomain() {
         return new Coupon(getId(), name, type, value, minOrderAmount, expiredAt,
-            getCreatedAt(), getUpdatedAt(), getDeletedAt());
+            maxIssuanceCount, issuedCount, getCreatedAt(), getUpdatedAt(), getDeletedAt());
     }
 
     public void updateFrom(Coupon domain) {
@@ -55,6 +63,7 @@ public class CouponEntity extends BaseEntity {
         this.value = domain.getValue();
         this.minOrderAmount = domain.getMinOrderAmount();
         this.expiredAt = domain.getExpiredAt();
+        this.maxIssuanceCount = domain.getMaxIssuanceCount();
         if (domain.getDeletedAt() != null) {
             delete();
         }

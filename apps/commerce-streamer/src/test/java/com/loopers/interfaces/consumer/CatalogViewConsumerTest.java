@@ -24,11 +24,14 @@ class CatalogViewConsumerTest {
     @Mock
     private ProductMetricsJpaRepository productMetricsJpaRepository;
 
+    @Mock
+    private DlqPublisher dlqPublisher;
+
     private CatalogViewConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new CatalogViewConsumer(productMetricsJpaRepository, new ObjectMapper());
+        consumer = new CatalogViewConsumer(productMetricsJpaRepository, new ObjectMapper(), dlqPublisher);
     }
 
     @DisplayName("consume()을 실행할 때,")

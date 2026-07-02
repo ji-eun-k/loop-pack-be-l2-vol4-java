@@ -59,6 +59,26 @@ public class KafkaConfig {
     }
 
     @Bean
+    public NewTopic couponIssueRequestsTopic() {
+        return TopicBuilder.name("coupon-issue-requests").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic catalogEventsDlqTopic() {
+        return TopicBuilder.name("catalog-events-v1.dlq").partitions(1).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic catalogViewEventsDlqTopic() {
+        return TopicBuilder.name("catalog-view-events-v1.dlq").partitions(1).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic couponIssueRequestsDlqTopic() {
+        return TopicBuilder.name("coupon-issue-requests.dlq").partitions(1).replicas(1).build();
+    }
+
+    @Bean
     public ByteArrayJsonMessageConverter jsonMessageConverter(ObjectMapper objectMapper) {
         return new ByteArrayJsonMessageConverter(objectMapper);
     }

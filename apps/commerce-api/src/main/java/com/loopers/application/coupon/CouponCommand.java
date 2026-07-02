@@ -7,7 +7,7 @@ import java.time.ZonedDateTime;
 
 public class CouponCommand {
 
-    public record Create(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt) {}
+    public record Create(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt, int maxIssuanceCount) {}
 
-    public record Update(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt) {}
+    public record Update(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt, int maxIssuanceCount) {}
 }

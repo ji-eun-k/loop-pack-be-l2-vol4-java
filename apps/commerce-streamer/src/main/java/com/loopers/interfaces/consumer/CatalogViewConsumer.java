@@ -22,6 +22,7 @@ public class CatalogViewConsumer {
 
     private final ProductMetricsJpaRepository productMetricsJpaRepository;
     private final ObjectMapper objectMapper;
+    private final DlqPublisher dlqPublisher;
 
     @Transactional
     @KafkaListener(
@@ -38,7 +39,8 @@ public class CatalogViewConsumer {
                 Long productId = ((Number) payload.get("productId")).longValue();
                 productMetricsJpaRepository.upsertViewCountIncrement(productId);
             } catch (Exception e) {
-                log.warn("[CATALOG_VIEW] view_count 업데이트 실패 — offset={}", record.offset(), e);
+                log.warn("[CATALOG_VIEW] 처리 실패 — offset={}", record.offset(), e);
+                dlqPublisher.sendToDlq(record, e);
             }
         }
         ack.acknowledge();

@@ -50,7 +50,7 @@ class CouponServiceIntegrationTest {
 
     private CouponEntity saveCoupon(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount,
                                     ZonedDateTime expiredAt) {
-        return couponJpaRepository.save(new CouponEntity(name, type, value, minOrderAmount, expiredAt));
+        return couponJpaRepository.save(new CouponEntity(name, type, value, minOrderAmount, expiredAt, 0));
     }
 
     private IssuedCouponEntity saveIssuedCoupon(Long couponId, Long userId, ZonedDateTime expiredAt) {
@@ -300,7 +300,7 @@ class CouponServiceIntegrationTest {
         void createsCoupon_whenValidFixedCoupon() {
             CouponCommand.Create command = new CouponCommand.Create(
                 "정액 쿠폰", CouponType.FIXED, BigDecimal.valueOf(5000), null,
-                ZonedDateTime.now().plusDays(30));
+                ZonedDateTime.now().plusDays(30), 0);
 
             Coupon result = couponService.createCoupon(command);
 
@@ -317,7 +317,7 @@ class CouponServiceIntegrationTest {
         void createsCoupon_whenValidRateCouponWithMinOrderAmount() {
             CouponCommand.Create command = new CouponCommand.Create(
                 "정률 쿠폰", CouponType.RATE, BigDecimal.TEN, BigDecimal.valueOf(10000),
-                ZonedDateTime.now().plusDays(30));
+                ZonedDateTime.now().plusDays(30), 0);
 
             Coupon result = couponService.createCoupon(command);
 
@@ -341,7 +341,7 @@ class CouponServiceIntegrationTest {
                 ZonedDateTime.now().plusDays(30));
             CouponCommand.Update command = new CouponCommand.Update(
                 "수정된 쿠폰", CouponType.FIXED, BigDecimal.valueOf(2000), null,
-                ZonedDateTime.now().plusDays(60));
+                ZonedDateTime.now().plusDays(60), 0);
 
             Coupon result = couponService.updateCoupon(coupon.getId(), command);
 
@@ -357,7 +357,7 @@ class CouponServiceIntegrationTest {
         void throwsNotFound_whenCouponDoesNotExist() {
             CouponCommand.Update command = new CouponCommand.Update(
                 "수정", CouponType.FIXED, BigDecimal.valueOf(1000), null,
-                ZonedDateTime.now().plusDays(30));
+                ZonedDateTime.now().plusDays(30), 0);
 
             CoreException ex = assertThrows(CoreException.class,
                 () -> couponService.updateCoupon(9999L, command));

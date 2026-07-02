@@ -17,27 +17,38 @@ public class Coupon extends BaseDomain {
     private BigDecimal value;
     private BigDecimal minOrderAmount;
     private ZonedDateTime expiredAt;
+    private int maxIssuanceCount;
+    private int issuedCount;
 
-    public Coupon(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt) {
-        validate(name, type, value, expiredAt);
+    public Coupon(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt, int maxIssuanceCount) {
+        validate(name, type, value, expiredAt, maxIssuanceCount);
         this.name = name;
         this.type = type;
         this.value = value;
         this.minOrderAmount = minOrderAmount;
         this.expiredAt = expiredAt;
+        this.maxIssuanceCount = maxIssuanceCount;
+        this.issuedCount = 0;
     }
 
     public Coupon(Long id, String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount,
-                  ZonedDateTime expiredAt, ZonedDateTime createdAt, ZonedDateTime updatedAt, ZonedDateTime deletedAt) {
+                  ZonedDateTime expiredAt, int maxIssuanceCount, int issuedCount,
+                  ZonedDateTime createdAt, ZonedDateTime updatedAt, ZonedDateTime deletedAt) {
         this.id = id;
         this.name = name;
         this.type = type;
         this.value = value;
         this.minOrderAmount = minOrderAmount;
         this.expiredAt = expiredAt;
+        this.maxIssuanceCount = maxIssuanceCount;
+        this.issuedCount = issuedCount;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.deletedAt = deletedAt;
+    }
+
+    public boolean isLimited() {
+        return maxIssuanceCount > 0;
     }
 
     public BigDecimal calculateDiscount(BigDecimal orderAmount) {
@@ -51,16 +62,17 @@ public class Coupon extends BaseDomain {
         return orderAmount.multiply(value).divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN);
     }
 
-    public void update(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt) {
-        validate(name, type, value, expiredAt);
+    public void update(String name, CouponType type, BigDecimal value, BigDecimal minOrderAmount, ZonedDateTime expiredAt, int maxIssuanceCount) {
+        validate(name, type, value, expiredAt, maxIssuanceCount);
         this.name = name;
         this.type = type;
         this.value = value;
         this.minOrderAmount = minOrderAmount;
         this.expiredAt = expiredAt;
+        this.maxIssuanceCount = maxIssuanceCount;
     }
 
-    private void validate(String name, CouponType type, BigDecimal value, ZonedDateTime expiredAt) {
+    private void validate(String name, CouponType type, BigDecimal value, ZonedDateTime expiredAt, int maxIssuanceCount) {
         if (name == null || name.isBlank()) {
             throw new CoreException(ErrorType.BAD_REQUEST, "쿠폰 이름은 필수입니다.");
         }
@@ -79,6 +91,9 @@ public class Coupon extends BaseDomain {
         }
         if (expiredAt == null) {
             throw new CoreException(ErrorType.BAD_REQUEST, "쿠폰 만료일은 필수입니다.");
+        }
+        if (maxIssuanceCount < 0) {
+            throw new CoreException(ErrorType.BAD_REQUEST, "최대 발급 수량은 0 이상이어야 합니다.");
         }
     }
 }

@@ -16,11 +16,14 @@ public class CouponInfo {
             CouponType type,
             BigDecimal value,
             BigDecimal minOrderAmount,
-            ZonedDateTime expiredAt
+            ZonedDateTime expiredAt,
+            int maxIssuanceCount,
+            int issuedCount
     ) {
         public static Detail from(Coupon coupon) {
             return new Detail(coupon.getId(), coupon.getName(), coupon.getType(),
-                coupon.getValue(), coupon.getMinOrderAmount(), coupon.getExpiredAt());
+                coupon.getValue(), coupon.getMinOrderAmount(), coupon.getExpiredAt(),
+                coupon.getMaxIssuanceCount(), coupon.getIssuedCount());
         }
     }
 

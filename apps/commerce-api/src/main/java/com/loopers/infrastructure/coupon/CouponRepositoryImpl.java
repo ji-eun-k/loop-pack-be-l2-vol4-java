@@ -23,7 +23,7 @@ public class CouponRepositoryImpl implements CouponRepository {
         if (coupon.getId() == null) {
             return couponJpaRepository.save(
                 new CouponEntity(coupon.getName(), coupon.getType(), coupon.getValue(),
-                    coupon.getMinOrderAmount(), coupon.getExpiredAt())
+                    coupon.getMinOrderAmount(), coupon.getExpiredAt(), coupon.getMaxIssuanceCount())
             ).toDomain();
         }
         CouponEntity entity = couponJpaRepository.findById(coupon.getId())

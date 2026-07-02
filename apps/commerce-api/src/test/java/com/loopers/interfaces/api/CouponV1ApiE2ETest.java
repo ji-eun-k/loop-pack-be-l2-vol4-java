@@ -75,7 +75,7 @@ class CouponV1ApiE2ETest {
     private CouponEntity saveCoupon(String name) {
         return couponJpaRepository.save(new CouponEntity(
             name, CouponType.FIXED, BigDecimal.valueOf(1000),
-            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30)
+            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30), 0
         ));
     }
 
@@ -83,23 +83,18 @@ class CouponV1ApiE2ETest {
     @Nested
     class IssueCoupon {
 
-        @DisplayName("로그인 유저가 존재하는 쿠폰을 발급하면, 발급된 쿠폰 정보를 반환한다.")
+        @DisplayName("로그인 유저가 존재하는 쿠폰 발급을 요청하면, 202 Accepted를 반환한다.")
         @Test
-        void returnsIssuedCoupon_whenUserIssuesCoupon() {
+        void returnsAccepted_whenUserRequestsCouponIssue() {
             CouponEntity coupon = saveCoupon("신규 회원 쿠폰");
 
-            ResponseEntity<ApiResponse<Map<String, Object>>> response = testRestTemplate.exchange(
+            ResponseEntity<ApiResponse<Void>> response = testRestTemplate.exchange(
                 COUPONS_URL + "/" + coupon.getId() + "/issue",
                 HttpMethod.POST, new HttpEntity<>(null, authHeaders()),
                 new ParameterizedTypeReference<>() {}
             );
 
-            Map<String, Object> data = response.getBody().data();
-            assertAll(
-                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
-                () -> assertThat(data.get("issuedCouponId")).isNotNull(),
-                () -> assertThat(data.get("couponId")).isEqualTo(coupon.getId().intValue())
-            );
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         }
 
         @DisplayName("인증 헤더가 없으면, 401을 반환한다.")
