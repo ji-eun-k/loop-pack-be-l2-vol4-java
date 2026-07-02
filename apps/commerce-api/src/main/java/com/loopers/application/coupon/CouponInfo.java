@@ -1,6 +1,7 @@
 package com.loopers.application.coupon;
 
 import com.loopers.domain.coupon.Coupon;
+import com.loopers.domain.coupon.CouponIssueResult;
 import com.loopers.domain.coupon.CouponStatus;
 import com.loopers.domain.coupon.CouponType;
 import com.loopers.domain.coupon.IssuedCoupon;
@@ -46,6 +47,13 @@ public class CouponInfo {
             return new MyCoupon(issued.getId(), issued.getCouponId(), issued.getExpiredAt(), effectiveStatus);
         }
     }
+
+    public record IssueEvent(
+            String eventId,
+            Long couponId,
+            Long userId,
+            CouponIssueResult result
+    ) {}
 
     public record Issued(
             Long id,

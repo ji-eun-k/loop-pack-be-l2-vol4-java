@@ -9,6 +9,8 @@ public interface IssuedCouponJpaRepository extends JpaRepository<IssuedCouponEnt
 
     boolean existsByCouponIdAndUserId(Long couponId, Long userId);
 
+    long countByCouponIdAndUserId(Long couponId, Long userId);
+
     @Modifying
     @Query(value = "UPDATE coupon SET issued_count = issued_count + 1 WHERE id = :couponId", nativeQuery = true)
     void incrementIssuedCount(@Param("couponId") Long couponId);

@@ -130,12 +130,32 @@ UserActionEventListener.handleProductViewed()   @EventListener + @Async
 
 ### 3-3. 쿠폰 발급 요청 (Outbox 미사용, 직접 발행)
 
+**왜 Kafka를 도입했는가**
+
+선착순 쿠폰은 짧은 시간 안에 수천 개의 발급 요청이 몰리는 구조다. Kafka 없이 API 서버에서 직접 DB에 발급을 처리하면 다음 문제가 생긴다.
+
+- **DB 락 경합**: 여러 스레드가 동시에 재고를 차감하려 하면 `SELECT ... FOR UPDATE` 대기가 쌓이고 응답 시간이 폭발적으로 늘어난다.
+- **낙관적 락 재시도 폭풍**: 낙관적 락으로 충돌을 감지해도, 동시 요청이 많으면 재시도가 재시도를 낳아 CPU와 커넥션이 소진된다.
+- **API 서버 타임아웃**: 동시 요청이 DB 응답을 기다리며 Tomcat 스레드를 점유하면 다른 API까지 응답 지연이 전파된다.
+
+Kafka를 사이에 두면 이 문제가 해결된다.
+
+| 역할 | 담당 |
+|---|---|
+| 요청 수신 + 큐잉 | `commerce-api` (CouponIssueFacade) — 유효성 검증 후 Kafka로 발행, 즉시 응답 |
+| 순차 처리 | `commerce-streamer` (CouponIssueProcessor) — 파티션당 1스레드가 순서대로 처리 |
+| 결과 조회 | `CouponIssueEventEntity` — `eventId`로 결과 폴링 (PENDING → SUCCESS / DUPLICATE / OUT_OF_STOCK) |
+
+API 서버는 Kafka 발행 후 `eventId`만 반환하므로 DB 락을 전혀 잡지 않는다. 컨슈머가 한 파티션을 단일 스레드로 처리하기 때문에 재고 차감과 발급 저장이 직렬화된다. 트래픽 스파이크는 Kafka 큐에 흡수되며, 처리 속도는 컨슈머가 소화할 수 있는 속도로 평탄화된다.
+
 ```
 CouponIssueFacade.requestIssue()
   └─ 유효성 검증 (만료 여부)
+  └─ CouponIssueEventEntity 저장 (status=PENDING)  ← 같은 트랜잭션
   └─ kafkaTemplate.send("coupon-issue-requests", couponId, payload)
        header: X-Event-Type: CouponIssueRequested
        partitionKey: couponId.toString()  (같은 쿠폰은 같은 파티션)
+  └─ eventId 반환  ← 클라이언트는 이 값으로 결과 폴링
 ```
 
 **partitionKey = couponId인 이유**
@@ -145,14 +165,95 @@ CouponIssueFacade.requestIssue()
 
 ```
 CouponIssueConsumer → CouponIssueProcessor.process()
-  1. 중복 발급 체크: issuedCouponJpaRepository.existsByCouponIdAndUserId()
-  2. Redis 재고 체크: DECR coupon:stock:{couponId}
-       - 재고 없으면 INCR로 원복 후 return
-       - key 없으면 무제한 발급
+  1. 중복 발급 체크: issuedCouponJpaRepository.existsByCouponIdAndUserId() → DUPLICATE
+  2. Redis 재고 체크: hasKey("coupon:stock:{couponId}")
+       - key 없음 → 무제한 쿠폰, 재고 체크 skip
+       - key 있음 → GET으로 stock 조회 → 0 이하면 OUT_OF_STOCK
   3. DB 저장: IssuedCouponEntity 저장 + issuedCount 증가
+  4. Redis 재고 차감: DECR coupon:stock:{couponId} (재고 있는 경우만)
+  5. CouponIssueEvent 상태 → SUCCESS
 ```
 
-Redis 재고 체크가 먼저이므로 DB에 락 없이 고속 처리가 가능하다. Redis DECR은 원자적(atomic)이므로 동시성 이슈가 없다.
+Redis 재고 확인(GET)을 DB 쓰기 전에 수행하므로 재고 소진 시 DB 접근 자체를 차단한다. DECR은 발급 저장이 완전히 끝난 후 수행하므로 DB 저장 실패 시 재고가 차감되지 않는다.
+
+**발급 결과 폴링**
+
+Kafka 비동기 처리이므로 발급 요청 시점에 성공 여부를 알 수 없다. 클라이언트는 `eventId`로 결과를 폴링한다.
+
+```
+POST /api/v1/coupons/{couponId}/issue
+  HTTP 202 Accepted
+  └─ { "eventId": "550e8400-e29b-..." }   ← 처리 중, 결과는 나중에
+
+GET /api/v1/coupons/issue/{eventId}
+  └─ { "eventId": "...", "couponId": 1, "userId": 42, "result": "PENDING" }
+  └─ { "eventId": "...", "couponId": 1, "userId": 42, "result": "SUCCESS" }
+```
+
+`CouponIssueResult` 상태 전이:
+
+| 상태 | 의미 | 전이 주체 |
+|---|---|---|
+| `PENDING` | Kafka 메시지 발행됨, 아직 처리 전 | commerce-api (발급 요청 시) |
+| `SUCCESS` | 발급 완료 | commerce-streamer |
+| `DUPLICATE` | 이미 발급된 사용자 | commerce-streamer |
+| `OUT_OF_STOCK` | 재고 소진 | commerce-streamer |
+| `FAILED` | 처리 중 예외 발생 | commerce-streamer |
+
+`coupon_issue_event` 테이블은 `commerce-api`와 `commerce-streamer`가 **같은 MySQL**을 바라보므로, streamer가 상태를 업데이트하면 api가 조회해서 클라이언트에 반환할 수 있다. Kafka 토픽을 거치지 않고 DB 조회만으로 결과를 제공하는 단순한 구조다.
+
+**202 Accepted를 쓰는 이유**
+`200 OK`는 처리 완료를 의미한다. 발급 요청은 Kafka에 enqueue한 것일 뿐 실제 발급이 끝나지 않았으므로 `202 Accepted`로 "요청은 수락됐고 처리는 비동기로 진행 중"임을 HTTP 스펙 수준에서 명확히 표현한다.
+
+**시퀀스 다이어그램**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as commerce-api<br/>(CouponV1Controller)
+    participant Facade as CouponIssueFacade
+    participant DB as MySQL<br/>(coupon_issue_event)
+    participant Kafka as Kafka<br/>(coupon-issue-requests)
+    participant Streamer as commerce-streamer<br/>(CouponIssueProcessor)
+    participant Redis as Redis<br/>(coupon:stock:{couponId})
+
+    Client->>API: POST /api/v1/coupons/{couponId}/issue
+    API->>Facade: requestIssue(couponId, userId)
+    Facade->>DB: getCoupon — 만료 검증
+    Facade->>DB: save CouponIssueEventEntity (PENDING)
+    Facade->>Kafka: send(partitionKey=couponId, payload={eventId, couponId, userId, expiredAt})
+    Facade-->>API: eventId
+    API-->>Client: 202 Accepted { eventId }
+
+    Note over Kafka,Streamer: 비동기 처리 — 같은 couponId는 같은 파티션으로 라우팅되어 순차 처리
+
+    Kafka->>Streamer: consume CouponIssueRequested
+
+    alt 중복 발급 — issuedCouponJpaRepository에 이미 존재
+        Streamer->>DB: existsByCouponIdAndUserId? → true
+        Streamer->>DB: update CouponIssueEvent → DUPLICATE
+    else 재고 소진 — Redis key 있고 stock <= 0
+        Streamer->>DB: existsByCouponIdAndUserId? → false
+        Streamer->>Redis: hasKey(coupon:stock:{couponId}) → true
+        Streamer->>Redis: GET coupon:stock:{couponId} → 0 이하
+        Streamer->>DB: update CouponIssueEvent → OUT_OF_STOCK
+    else 발급 성공 — Redis key 없거나(무제한) stock > 0
+        Streamer->>DB: existsByCouponIdAndUserId? → false
+        Streamer->>Redis: hasKey(coupon:stock:{couponId})
+        Note right of Streamer: key 없음 → 무제한 쿠폰, 재고 체크 skip<br/>key 있음 → GET으로 stock 확인
+        Streamer->>DB: save IssuedCouponEntity
+        Streamer->>DB: incrementIssuedCount(couponId)
+        Streamer->>Redis: DECR coupon:stock:{couponId} (재고 있는 경우만)
+        Streamer->>DB: update CouponIssueEvent → SUCCESS
+    end
+
+    loop 결과 폴링 (result = PENDING 동안 반복)
+        Client->>API: GET /api/v1/coupons/issue/{eventId}
+        API->>DB: findByEventId(eventId)
+        DB-->>API: CouponIssueEvent { result }
+        API-->>Client: 200 OK { eventId, result: PENDING | SUCCESS | DUPLICATE | OUT_OF_STOCK }
+    end
+```
 
 ---
 

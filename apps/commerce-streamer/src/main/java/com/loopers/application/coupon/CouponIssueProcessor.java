@@ -2,6 +2,9 @@ package com.loopers.application.coupon;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.loopers.domain.coupon.CouponIssueResult;
+import com.loopers.infrastructure.coupon.CouponIssueEventEntity;
+import com.loopers.infrastructure.coupon.CouponIssueEventJpaRepository;
 import com.loopers.infrastructure.coupon.IssuedCouponEntity;
 import com.loopers.infrastructure.coupon.IssuedCouponJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +25,7 @@ public class CouponIssueProcessor {
     static final String COUPON_STOCK_KEY_PREFIX = "coupon:stock:";
 
     private final IssuedCouponJpaRepository issuedCouponJpaRepository;
+    private final CouponIssueEventJpaRepository couponIssueEventJpaRepository;
     private final ObjectMapper objectMapper;
 
     @Qualifier("redisTemplateMaster")
@@ -30,6 +34,7 @@ public class CouponIssueProcessor {
     @Transactional
     public void process(String payload) throws Exception {
         Map<String, Object> data = objectMapper.readValue(payload, new TypeReference<>() {});
+        String eventId = (String) data.get("eventId");
         Long couponId = ((Number) data.get("couponId")).longValue();
         Long userId = ((Number) data.get("userId")).longValue();
         ZonedDateTime expiredAt = ZonedDateTime.parse((String) data.get("expiredAt"));
@@ -37,6 +42,7 @@ public class CouponIssueProcessor {
         // 1. 중복 발급 체크
         if (issuedCouponJpaRepository.existsByCouponIdAndUserId(couponId, userId)) {
             log.debug("[COUPON_ISSUE] 중복 발급 skip — couponId={}, userId={}", couponId, userId);
+            saveOrUpdateEvent(eventId, couponId, userId, CouponIssueResult.DUPLICATE);
             return;
         }
 
@@ -48,6 +54,7 @@ public class CouponIssueProcessor {
             long stock = stockValue != null ? Long.parseLong(stockValue) : 0L;
             if (stock <= 0) {
                 log.debug("[COUPON_ISSUE] 재고 소진 — couponId={}, userId={}", couponId, userId);
+                saveOrUpdateEvent(eventId, couponId, userId, CouponIssueResult.OUT_OF_STOCK);
                 return;
             }
         }
@@ -61,6 +68,17 @@ public class CouponIssueProcessor {
             redisTemplate.opsForValue().decrement(stockKey);
         }
 
+        saveOrUpdateEvent(eventId, couponId, userId, CouponIssueResult.SUCCESS);
         log.info("[COUPON_ISSUE] 발급 완료 — couponId={}, userId={}", couponId, userId);
+    }
+
+    private void saveOrUpdateEvent(String eventId, Long couponId, Long userId, CouponIssueResult result) {
+        couponIssueEventJpaRepository.findByEventId(eventId).ifPresentOrElse(
+            entity -> {
+                entity.updateResult(result);
+                couponIssueEventJpaRepository.save(entity);
+            },
+            () -> couponIssueEventJpaRepository.save(new CouponIssueEventEntity(eventId, couponId, userId, result))
+        );
     }
 }
