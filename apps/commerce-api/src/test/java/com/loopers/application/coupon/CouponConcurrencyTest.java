@@ -50,7 +50,7 @@ class CouponConcurrencyTest {
     void usesOnlyOnce_whenConcurrentRequestsForSameIssuedCoupon() throws InterruptedException {
         // Arrange
         CouponEntity coupon = couponJpaRepository.save(
-            new CouponEntity("10% 할인 쿠폰", CouponType.RATE, BigDecimal.TEN, null, ZonedDateTime.now().plusDays(30))
+            new CouponEntity("10% 할인 쿠폰", CouponType.RATE, BigDecimal.TEN, null, ZonedDateTime.now().plusDays(30), 0)
         );
         IssuedCouponEntity issuedCoupon = issuedCouponJpaRepository.save(new IssuedCouponEntity(coupon.getId(), 1L, ZonedDateTime.now().plusDays(30)));
 

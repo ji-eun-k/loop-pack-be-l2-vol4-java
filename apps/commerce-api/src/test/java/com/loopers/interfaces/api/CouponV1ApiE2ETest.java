@@ -1,6 +1,9 @@
 package com.loopers.interfaces.api;
 
+import com.loopers.domain.coupon.CouponIssueResult;
 import com.loopers.infrastructure.coupon.CouponEntity;
+import com.loopers.infrastructure.coupon.CouponIssueEventEntity;
+import com.loopers.infrastructure.coupon.CouponIssueEventJpaRepository;
 import com.loopers.infrastructure.coupon.CouponJpaRepository;
 import com.loopers.infrastructure.coupon.IssuedCouponEntity;
 import com.loopers.infrastructure.coupon.IssuedCouponJpaRepository;
@@ -43,6 +46,7 @@ class CouponV1ApiE2ETest {
     @Autowired private TestRestTemplate testRestTemplate;
     @Autowired private CouponJpaRepository couponJpaRepository;
     @Autowired private IssuedCouponJpaRepository issuedCouponJpaRepository;
+    @Autowired private CouponIssueEventJpaRepository couponIssueEventJpaRepository;
     @Autowired private UserJpaRepository userJpaRepository;
     @Autowired private DatabaseCleanUp databaseCleanUp;
 
@@ -75,7 +79,7 @@ class CouponV1ApiE2ETest {
     private CouponEntity saveCoupon(String name) {
         return couponJpaRepository.save(new CouponEntity(
             name, CouponType.FIXED, BigDecimal.valueOf(1000),
-            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30)
+            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30), 0
         ));
     }
 
@@ -83,9 +87,9 @@ class CouponV1ApiE2ETest {
     @Nested
     class IssueCoupon {
 
-        @DisplayName("로그인 유저가 존재하는 쿠폰을 발급하면, 발급된 쿠폰 정보를 반환한다.")
+        @DisplayName("로그인 유저가 존재하는 쿠폰 발급을 요청하면, 202 Accepted와 eventId를 반환한다.")
         @Test
-        void returnsIssuedCoupon_whenUserIssuesCoupon() {
+        void returnsAcceptedWithEventId_whenUserRequestsCouponIssue() {
             CouponEntity coupon = saveCoupon("신규 회원 쿠폰");
 
             ResponseEntity<ApiResponse<Map<String, Object>>> response = testRestTemplate.exchange(
@@ -94,11 +98,10 @@ class CouponV1ApiE2ETest {
                 new ParameterizedTypeReference<>() {}
             );
 
-            Map<String, Object> data = response.getBody().data();
             assertAll(
-                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
-                () -> assertThat(data.get("issuedCouponId")).isNotNull(),
-                () -> assertThat(data.get("couponId")).isEqualTo(coupon.getId().intValue())
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED),
+                () -> assertThat(response.getBody().data()).containsKey("eventId"),
+                () -> assertThat((String) response.getBody().data().get("eventId")).isNotBlank()
             );
         }
 
@@ -126,6 +129,57 @@ class CouponV1ApiE2ETest {
             );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        }
+    }
+
+    @DisplayName("GET /api/v1/coupons/issue/{eventId}")
+    @Nested
+    class GetIssueEvent {
+
+        @DisplayName("존재하는 eventId로 조회하면, 발급 결과를 반환한다.")
+        @Test
+        void returnsIssueEvent_whenEventExists() {
+            CouponEntity coupon = saveCoupon("이벤트 조회 쿠폰");
+            String eventId = "test-event-uuid-001";
+            couponIssueEventJpaRepository.save(
+                new CouponIssueEventEntity(eventId, coupon.getId(), userId, CouponIssueResult.SUCCESS)
+            );
+
+            ResponseEntity<ApiResponse<Map<String, Object>>> response = testRestTemplate.exchange(
+                COUPONS_URL + "/issue/" + eventId,
+                HttpMethod.GET, new HttpEntity<>(authHeaders()),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertAll(
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
+                () -> assertThat(response.getBody().data().get("eventId")).isEqualTo(eventId),
+                () -> assertThat(response.getBody().data().get("result")).isEqualTo("SUCCESS")
+            );
+        }
+
+        @DisplayName("존재하지 않는 eventId로 조회하면, 404를 반환한다.")
+        @Test
+        void returnsNotFound_whenEventDoesNotExist() {
+            ResponseEntity<ApiResponse<Object>> response = testRestTemplate.exchange(
+                COUPONS_URL + "/issue/non-existent-event-id",
+                HttpMethod.GET, new HttpEntity<>(authHeaders()),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        }
+
+        @DisplayName("인증 헤더가 없으면, 401을 반환한다.")
+        @Test
+        void returnsUnauthorized_whenAuthHeaderIsMissing() {
+            ResponseEntity<ApiResponse<Object>> response = testRestTemplate.exchange(
+                COUPONS_URL + "/issue/any-event-id",
+                HttpMethod.GET, new HttpEntity<>(null),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.loopers.application.coupon;
 
 import com.loopers.domain.coupon.Coupon;
+import com.loopers.domain.coupon.CouponIssueResult;
 import com.loopers.domain.coupon.CouponStatus;
 import com.loopers.domain.coupon.CouponType;
 import com.loopers.domain.coupon.IssuedCoupon;
@@ -16,11 +17,14 @@ public class CouponInfo {
             CouponType type,
             BigDecimal value,
             BigDecimal minOrderAmount,
-            ZonedDateTime expiredAt
+            ZonedDateTime expiredAt,
+            int maxIssuanceCount,
+            int issuedCount
     ) {
         public static Detail from(Coupon coupon) {
             return new Detail(coupon.getId(), coupon.getName(), coupon.getType(),
-                coupon.getValue(), coupon.getMinOrderAmount(), coupon.getExpiredAt());
+                coupon.getValue(), coupon.getMinOrderAmount(), coupon.getExpiredAt(),
+                coupon.getMaxIssuanceCount(), coupon.getIssuedCount());
         }
     }
 
@@ -43,6 +47,13 @@ public class CouponInfo {
             return new MyCoupon(issued.getId(), issued.getCouponId(), issued.getExpiredAt(), effectiveStatus);
         }
     }
+
+    public record IssueEvent(
+            String eventId,
+            Long couponId,
+            Long userId,
+            CouponIssueResult result
+    ) {}
 
     public record Issued(
             Long id,

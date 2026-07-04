@@ -7,6 +7,7 @@ import com.loopers.domain.coupon.IssuedCouponRepository;
 import com.loopers.support.error.CoreException;
 import com.loopers.support.error.ErrorType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ public class CouponService {
 
     private final CouponRepository couponRepository;
     private final IssuedCouponRepository issuedCouponRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public IssuedCoupon issue(Long couponId, Long userId) {
@@ -70,15 +72,19 @@ public class CouponService {
 
     @Transactional
     public Coupon createCoupon(CouponCommand.Create command) {
-        Coupon coupon = new Coupon(command.name(), command.type(), command.value(), command.minOrderAmount(), command.expiredAt());
-        return couponRepository.save(coupon);
+        Coupon coupon = new Coupon(command.name(), command.type(), command.value(), command.minOrderAmount(), command.expiredAt(), command.maxIssuanceCount());
+        Coupon saved = couponRepository.save(coupon);
+        if (saved.isLimited()) {
+            eventPublisher.publishEvent(new CouponStockInitEvent(saved.getId(), saved.getMaxIssuanceCount()));
+        }
+        return saved;
     }
 
     @Transactional
     public Coupon updateCoupon(Long couponId, CouponCommand.Update command) {
         Coupon coupon = couponRepository.findById(couponId)
             .orElseThrow(() -> new CoreException(ErrorType.NOT_FOUND, "존재하지 않는 쿠폰입니다."));
-        coupon.update(command.name(), command.type(), command.value(), command.minOrderAmount(), command.expiredAt());
+        coupon.update(command.name(), command.type(), command.value(), command.minOrderAmount(), command.expiredAt(), command.maxIssuanceCount());
         return couponRepository.save(coupon);
     }
 

@@ -55,7 +55,7 @@ class CouponAdminV1ApiE2ETest {
     private CouponEntity saveCoupon(String name) {
         return couponJpaRepository.save(new CouponEntity(
             name, CouponType.FIXED, BigDecimal.valueOf(1000),
-            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30)
+            BigDecimal.valueOf(5000), ZonedDateTime.now().plusDays(30), 0
         ));
     }
 

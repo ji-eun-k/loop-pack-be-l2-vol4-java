@@ -46,11 +46,10 @@ class PaymentFacadeUnitTest {
 
     private static final Long USER_ID = 1L;
     private static final Long ORDER_ID = 100L;
-    private static final String CALLBACK_URL = "http://localhost:8080/api/v1/payments/callback";
 
     @BeforeEach
     void setUp() {
-        paymentFacade = new PaymentFacade(orderService, paymentService, pgFeignClient, CALLBACK_URL);
+        paymentFacade = new PaymentFacade(orderService, paymentService, pgFeignClient);
     }
 
     @DisplayName("결제를 요청할 때,")
@@ -171,7 +170,7 @@ class PaymentFacadeUnitTest {
             then(orderService).should().confirm(ORDER_ID);
         }
 
-        @DisplayName("FAILED 콜백이면 결제만 FAILED로 완료하고 주문은 건드리지 않는다.")
+        @DisplayName("FAILED 콜백이면 결제만 FAILED로 완료하고 이벤트를 발행하지 않는다.")
         @Test
         void completesFailedOnly_whenCallbackIsFailed() {
             Payment inProgressPayment = inProgressPayment();
@@ -180,7 +179,7 @@ class PaymentFacadeUnitTest {
             paymentFacade.receiveCallback(new PaymentCommand.Callback(TRANSACTION_KEY, PaymentStatus.FAILED, "한도초과입니다."));
 
             then(paymentService).should().complete(TRANSACTION_KEY, PaymentStatus.FAILED, "한도초과입니다.");
-            then(orderService).should(Mockito.never()).confirm(ORDER_ID);
+            then(orderService).should(Mockito.never()).confirm(any());
         }
 
         @DisplayName("이미 SUCCESS 상태의 결제면 아무것도 하지 않는다.")

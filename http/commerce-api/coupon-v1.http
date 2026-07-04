@@ -4,8 +4,13 @@ GET http://localhost:8080/api/v1/coupons?page=0&size=20
 ### 쿠폰 단건 조회 (유저)
 GET http://localhost:8080/api/v1/coupons/1
 
-### 쿠폰 발급 (유저)
+### 쿠폰 발급 요청 (유저) — 응답에 eventId 포함
 POST http://localhost:8080/api/v1/coupons/1/issue
+X-Loopers-LoginId: testuser
+X-Loopers-LoginPw: pAssWord1!
+
+### 쿠폰 발급 상태 조회 (유저) — polling: 404=처리중, 200=완료(SUCCESS/DUPLICATE/OUT_OF_STOCK)
+GET http://localhost:8080/api/v1/coupons/issue/{eventId}
 X-Loopers-LoginId: testuser
 X-Loopers-LoginPw: pAssWord1!
 
