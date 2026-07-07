@@ -37,7 +37,7 @@ ZADD waiting-queue 1720000003 "3"
 | `ZCARD` | 전체 대기 인원 수 |
 | `ZPOPMIN n` | 앞에서 n명 꺼내기 (스케줄러가 입장 토큰 발급할 때) |
 | `SET key EX ttl` | 활성 토큰 저장 (입장 허가) |
-| `EXISTS key` | 활성 토큰 유무 확인 |
+| `GET key` | 활성 토큰 값(UUID) 조회 |
 | `DEL key` | 주문 완료 후 토큰 삭제 |
 
 ---
@@ -83,12 +83,12 @@ ZPOPMIN은 그 자체로 원자적이라 한 번 꺼낸 userId는 다른 누가 
 ```
 
 ```java
-List<Long> userIds = waitingQueueRepository.popOldest(batchSize);
+List<Long> userIds = queueRepository.popOldest(batchSize);
 for (Long userId : userIds) {
     long jitterMillis = ThreadLocalRandom.current().nextLong(0, 301);
     Thread.sleep(jitterMillis);
     String token = UUID.randomUUID().toString();
-    entryTokenRepository.saveEntryToken(userId, token, tokenTtlSeconds);
+    entryTokenRepository.save(userId, token, tokenTtlSeconds);
 }
 ```
 
@@ -100,27 +100,19 @@ for (Long userId : userIds) {
 ### 3-3. 순번 조회 Lua (position)
 
 **왜 필요한가?**
-GET + ZRANK + ZCARD를 3번 왕복하면 불필요한 네트워크 비용이 생긴다. 한 번에 묶어 조회한다.
-`EXISTS` 대신 `GET`을 쓰는 이유: ACTIVE 상태일 때 토큰 값(UUID)을 클라이언트에 반환해야 하기 때문이다.
+ZRANK + ZCARD를 따로 2번 호출하면 두 호출 사이에 다른 사람이 입장해 카운트가 달라질 수 있다. 원자적으로 묶어야 한다.
+
+토큰 조회는 이 Lua 스크립트에 포함하지 않는다. 스케줄러가 `ZPOPMIN`으로 유저를 꺼내는 순간 대기열에서 이미 사라지므로, 토큰 체크와 순번 조회는 서로 독립적인 연산이다. `QueueService`에서 두 Repository를 순서대로 호출해 상태를 결정한다.
 
 ```lua
 -- KEYS[1] : "queue:waiting"
--- KEYS[2] : "queue:active:{userId}"
 -- ARGV[1] : userId
+-- returns: {-1} if not in queue, {rank(0-based), totalWaiting} if waiting
 
-local token = redis.call('GET', KEYS[2])
-if token ~= false then
-    return {0, token, -1}   -- ACTIVE: {statusCode, entryToken, _}
-end
-
-local rank  = redis.call('ZRANK', KEYS[1], ARGV[1])
+local rank = redis.call('ZRANK', KEYS[1], ARGV[1])
+if rank == false then return {-1} end
 local total = redis.call('ZCARD', KEYS[1])
-
-if rank == false then
-    return {2, false, -1}   -- NOT_IN_QUEUE
-end
-
-return {1, rank, total}     -- WAITING
+return {rank, total}
 ```
 
 > **Step 1 체크리스트**
@@ -170,38 +162,44 @@ QueueScheduler                         Redis
 
 ### 4-3. 순번 폴링 (`GET /api/v1/queue/position`)
 
+`QueueService.getPosition()`은 두 Repository를 순서대로 조회한다:
+① `EntryTokenRepository.find()` → 토큰 존재 시 ACTIVE
+② `QueueRepository.findPositionSnapshot()` → 대기열 존재 시 WAITING
+③ 둘 다 없으면 NOT_IN_QUEUE
+
 ```
-클라이언트                QueueController          Redis
-    │                          │                     │
-    │  GET /api/v1/queue/position                     │
-    │ ──────────────────────── >│                     │
-    │                           │  [Lua: position]    │
-    │                           │  GET + ZRANK        │
-    │                           │  + ZCARD (원자적)   │
-    │                           │ ─────────────────── >
-    │                           │ <── {1,30,100}      │  ← WAITING
-    │                           │                     │
-    │  { status: WAITING,       │                     │
-    │    position: 31,          │                     │
-    │    waitingCount: 100,     │                     │
-    │    nextPollAfterMs: 2000, │                     │
-    │    estimatedWaitSeconds: 62 }                   │
-    │ <──────────────────────── │                     │
-    │                           │                     │
-    │  (2초 뒤 다시 폴링)        │                     │
-    │                           │                     │
-    │  GET /api/v1/queue/position                     │
-    │ ──────────────────────── >│                     │
-    │                           │  [Lua: position]    │
-    │                           │  GET queue:active:{id}
-    │                           │ ─────────────────── >
-    │                           │ <── {0,"uuid-token",-1}  ← ACTIVE
-    │                           │                     │
-    │  { status: ACTIVE,        │                     │
+클라이언트                QueueService          EntryTokenRepo    QueueRepo(Lua)
+    │                          │                     │                  │
+    │  GET /api/v1/queue/position                     │                  │
+    │ ──────────────────────── >│                     │                  │
+    │                           │  GET queue:active:{id}                │
+    │                           │ ─────────────────── >                  │
+    │                           │ <── null (아직 없음)│                  │
+    │                           │                     │                  │
+    │                           │  ZRANK + ZCARD (Lua)│                  │
+    │                           │ ──────────────────────────────────── > │
+    │                           │ <── {30, 100}       │                  │
+    │                           │                     │                  │
+    │  { status: WAITING,       │                     │                  │
+    │    position: 31,          │                     │                  │
+    │    waitingCount: 100,     │                     │                  │
+    │    nextPollAfterMs: 2000, │                     │                  │
+    │    estimatedWaitSeconds: 62 }                   │                  │
+    │ <──────────────────────── │                     │                  │
+    │                           │                     │                  │
+    │  (2초 뒤 다시 폴링)        │                     │                  │
+    │                           │                     │                  │
+    │  GET /api/v1/queue/position                     │                  │
+    │ ──────────────────────── >│                     │                  │
+    │                           │  GET queue:active:{id}                │
+    │                           │ ─────────────────── >                  │
+    │                           │ <── "uuid-token"    │  ← 스케줄러가 발급│
+    │                           │                     │                  │
+    │  { status: ACTIVE,        │                     │                  │
     │    entryToken: "550e8400-e29b-41d4-a716-446655440000" }
-    │ <──────────────────────── │                     │
-    │                           │                     │
-    │  (이제 주문 API 호출 가능)  │                     │
+    │ <──────────────────────── │                     │                  │
+    │                           │                     │                  │
+    │  (이제 주문 API 호출 가능)  │                     │                  │
 ```
 
 > **Step 3 체크리스트**
@@ -259,17 +257,19 @@ OrderFacade      ApplicationEventPublisher    QueueTokenCleanupListener   Redis
 ```
 apps/commerce-api/src/main/java/com/loopers/
 ├── domain/queue/
-│   ├── QueueService.java         — enter / getPosition / hasValidToken / deleteToken
-│   ├── QueueRepository.java      — 인터페이스
-│   ├── QueueStatus.java          — WAITING / ACTIVE / NOT_IN_QUEUE
-│   ├── QueueEntryResult.java     — status, position, waitingCount, estimatedWaitSeconds
-│   └── QueuePositionResult.java  — status, position, waitingCount, nextPollAfterMs, estimatedWaitSeconds
+│   ├── QueueService.java           — enter / getPosition
+│   ├── QueueRepository.java        — enter / findPositionSnapshot 인터페이스
+│   ├── EntryTokenRepository.java   — save / find / delete 인터페이스
+│   ├── QueuePositionSnapshot.java  — rank(0-based), totalWaiting record
+│   ├── QueueStatus.java            — WAITING / ACTIVE / NOT_IN_QUEUE
+│   ├── QueueEntryResult.java       — status, position, waitingCount, estimatedWaitSeconds
+│   └── QueuePositionResult.java    — status, position, waitingCount, nextPollAfterMs, estimatedWaitSeconds, entryToken
 │
 ├── infrastructure/queue/
-│   ├── RedisQueueRepository.java      — Lua 스크립트 실행 (enter / position), ZPOPMIN
-│   ├── RedisEntryTokenRepository.java — SET/GET/DEL queue:active:{userId}
-│   ├── QueueLuaScripts.java           — Lua 스크립트 상수 정의
-│   └── QueueScheduler.java            — @Scheduled, 1초마다 ZPOPMIN + 입장 토큰 발급
+│   ├── RedisQueueRepository.java       — Lua: enter(ZADD+ZRANK+ZCARD), findPositionSnapshot(ZRANK+ZCARD)
+│   ├── RedisEntryTokenRepository.java  — opsForValue GET/SET EX/DEL (queue:active:{userId})
+│   ├── QueueLuaScripts.java            — Lua 스크립트 상수 정의
+│   └── QueueScheduler.java             — @Scheduled, 1초마다 ZPOPMIN + 입장 토큰 발급
 │
 ├── application/queue/
 │   └── QueueProperties.java      — @ConfigurationProperties(prefix = "queue")
@@ -292,10 +292,18 @@ apps/commerce-api/src/main/java/com/loopers/
 ### QueueService
 
 ```java
-QueueEntryResult enter(Long userId);        // 대기열 진입, 재진입 시 줄 맨 뒤
-QueuePositionResult getPosition(Long userId); // 현재 순번/상태 조회
-boolean hasValidToken(Long userId);          // 주문 API 진입 검증용
-void deleteToken(Long userId);               // 주문 완료 후 호출
+QueueEntryResult enter(Long userId);          // 대기열 진입, 재진입 시 줄 맨 뒤
+QueuePositionResult getPosition(Long userId); // ① 토큰 조회 → ② 순번 조회 → ③ NOT_IN_QUEUE
+```
+
+```java
+// getPosition 내부 로직
+return entryTokenRepository.find(userId)                      // ① ACTIVE?
+    .map(token -> new QueuePositionResult(ACTIVE, ..., token))
+    .orElseGet(() -> queueRepository.findPositionSnapshot(userId)  // ② WAITING?
+        .map(snapshot -> new QueuePositionResult(WAITING, ...))
+        .orElse(new QueuePositionResult(NOT_IN_QUEUE, ...))        // ③
+    );
 ```
 
 ### QueueEntryResult / QueuePositionResult
@@ -427,6 +435,8 @@ queue:
 ```java
 public final class QueueLuaScripts {
 
+    // KEYS[1]: "queue:waiting", ARGV[1]: userId, ARGV[2]: score
+    // returns: {rank(0-based), totalCount}
     public static final String ENTER = """
         redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
         local rank  = redis.call('ZRANK', KEYS[1], ARGV[1])
@@ -434,18 +444,13 @@ public final class QueueLuaScripts {
         return {rank, total}
         """;
 
-    // KEYS[1] = "queue:waiting", KEYS[2] = "queue:active:{userId}", ARGV[1] = userId
-    // 반환: {statusCode, value, total}
-    //   ACTIVE      → {0, "uuid-token", -1}   ← GET으로 토큰 값 반환
-    //   WAITING     → {1, rank(0-based), total}
-    //   NOT_IN_QUEUE→ {2, false, -1}
+    // KEYS[1]: "queue:waiting", ARGV[1]: userId
+    // returns: {-1} if not in queue, {rank(0-based), totalWaiting} if waiting
     public static final String POSITION = """
-        local token = redis.call('GET', KEYS[2])
-        if token ~= false then return {0, token, -1} end
-        local rank  = redis.call('ZRANK', KEYS[1], ARGV[1])
+        local rank = redis.call('ZRANK', KEYS[1], ARGV[1])
+        if rank == false then return {-1} end
         local total = redis.call('ZCARD', KEYS[1])
-        if rank == false then return {2, false, -1} end
-        return {1, rank, total}
+        return {rank, total}
         """;
 
     private QueueLuaScripts() {}
@@ -484,10 +489,10 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 
 예시:
 - position: 363 (1-based)
-- batchSize: 121명/틱
+- batchSize: 75명/틱
 - schedulerIntervalMs: 1000ms
 
-→ 363 / 121 × 1 = 3초
+→ 363 / 75 × 1 = 4.84 ≈ 5초
 ```
 
 > **Step 3 체크리스트**
@@ -498,28 +503,30 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 ## 9. 구현 순서
 
 ```
-Phase 1. 도메인 + Redis
+Phase 1. 도메인 + Redis  ✅ 완료
   ├── QueueStatus enum
-  ├── QueueEntryResult, QueuePositionResult record
-  ├── QueueRepository 인터페이스
+  ├── QueueEntryResult, QueuePositionResult(+entryToken) record
+  ├── QueuePositionSnapshot record
+  ├── QueueRepository 인터페이스 (enter / findPositionSnapshot)
+  ├── EntryTokenRepository 인터페이스 (save / find / delete)
   ├── QueueLuaScripts 상수 클래스
-  ├── RedisQueueRepository (Lua 3개 실행)
-  └── QueueService (enter / getPosition / hasValidToken / deleteToken)
+  ├── RedisQueueRepository (Lua: enter, findPositionSnapshot)
+  ├── RedisEntryTokenRepository (opsForValue GET/SET/DEL)
+  └── QueueService (enter / getPosition)
 
-Phase 2. API
-  ├── QueueErrorType
-  ├── QueueV1Dto
+Phase 2. API  ✅ 완료
+  ├── QueueV1Dto (EnterResponse / PositionResponse+entryToken)
   └── QueueV1Controller (POST /enter, GET /position)
 
 Phase 3. 주문 가드
   ├── OrderCompletedEvent record
-  ├── QueueTokenCleanupListener @EventListener
-  ├── QueueTokenInterceptor
+  ├── QueueTokenCleanupListener @EventListener (entryTokenRepository.delete)
+  ├── QueueTokenInterceptor (X-Queue-Token 헤더 검증)
   └── WebMvcConfig에 /api/v1/orders/** 인터셉터 등록
 
 Phase 4. 스케줄러 + 설정
   ├── QueueProperties @ConfigurationProperties
-  └── QueueScheduler @Scheduled
+  └── QueueScheduler @Scheduled (ZPOPMIN → entryTokenRepository.save)
 
 Phase 5. (Nice-To-Have) Polling 주기 동적 조절
   └── QueuePositionResult.nextPollAfterMs 구간별 계산

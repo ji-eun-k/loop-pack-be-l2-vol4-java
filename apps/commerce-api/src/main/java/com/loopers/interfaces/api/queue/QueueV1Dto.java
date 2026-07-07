@@ -26,7 +26,8 @@ public class QueueV1Dto {
             long position,
             long waitingCount,
             long nextPollAfterMs,
-            long estimatedWaitSeconds
+            long estimatedWaitSeconds,
+            String entryToken
     ) {
         public static PositionResponse from(QueuePositionResult result) {
             return new PositionResponse(
@@ -34,7 +35,8 @@ public class QueueV1Dto {
                     result.position(),
                     result.waitingCount(),
                     result.nextPollAfterMs(),
-                    result.estimatedWaitSeconds()
+                    result.estimatedWaitSeconds(),
+                    result.entryToken()
             );
         }
     }

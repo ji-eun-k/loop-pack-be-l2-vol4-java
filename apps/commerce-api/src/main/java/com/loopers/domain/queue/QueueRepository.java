@@ -1,6 +1,7 @@
 package com.loopers.domain.queue;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface QueueRepository {
 
@@ -11,11 +12,7 @@ public interface QueueRepository {
     List<Long> enter(Long userId);
 
     /**
-     * 현재 대기 상태를 조회한다.
-     * @return [statusCode, rank, total]
-     *   statusCode: 0=ACTIVE, 1=WAITING, 2=NOT_IN_QUEUE
-     *   rank: 0-based (statusCode=1일 때만 유효, 나머지는 -1)
-     *   total: (statusCode=1일 때만 유효, 나머지는 -1)
+     * 대기열에서 현재 순번을 조회한다. 대기열에 없으면 empty.
      */
-    List<Long> getPosition(Long userId);
+    Optional<QueuePositionSnapshot> findPositionSnapshot(Long userId);
 }

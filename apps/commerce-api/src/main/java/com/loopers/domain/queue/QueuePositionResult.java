@@ -5,5 +5,6 @@ public record QueuePositionResult(
         long position,
         long waitingCount,
         long nextPollAfterMs,
-        long estimatedWaitSeconds
+        long estimatedWaitSeconds,
+        String entryToken
 ) {}

@@ -1,5 +1,6 @@
 package com.loopers.application.queue;
 
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.domain.queue.QueueEntryResult;
 import com.loopers.domain.queue.QueuePositionResult;
 import com.loopers.domain.queue.QueueRepository;
@@ -13,11 +14,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class QueueService {
 
-    private static final int STATUS_ACTIVE = 0;
-    private static final int STATUS_WAITING = 1;
-    private static final int STATUS_NOT_IN_QUEUE = 2;
-
     private final QueueRepository queueRepository;
+    private final EntryTokenRepository entryTokenRepository;
     private final QueueProperties queueProperties;
 
     public QueueEntryResult enter(Long userId) {
@@ -29,23 +27,21 @@ public class QueueService {
     }
 
     public QueuePositionResult getPosition(Long userId) {
-        List<Long> result = queueRepository.getPosition(userId);
-        int statusCode = result.get(0).intValue();
-
-        return switch (statusCode) {
-            case STATUS_ACTIVE -> new QueuePositionResult(QueueStatus.ACTIVE, 0, 0, 0, 0);
-            case STATUS_WAITING -> {
-                long position = result.get(1) + 1;  // 0-based → 1-based
-                long total = result.get(2);
-                yield new QueuePositionResult(
-                        QueueStatus.WAITING, position, total,
-                        calculateNextPollInterval(position),
-                        calculateEstimatedWait(position)
+        return entryTokenRepository.find(userId)
+                .map(token -> new QueuePositionResult(QueueStatus.ACTIVE, 0, 0, 0, 0, token))
+                .orElseGet(() -> queueRepository.findPositionSnapshot(userId)
+                        .map(snapshot -> {
+                            long position = snapshot.rank() + 1;
+                            long total = snapshot.totalWaiting();
+                            return new QueuePositionResult(
+                                    QueueStatus.WAITING, position, total,
+                                    calculateNextPollInterval(position),
+                                    calculateEstimatedWait(position),
+                                    null
+                            );
+                        })
+                        .orElse(new QueuePositionResult(QueueStatus.NOT_IN_QUEUE, 0, 0, 0, 0, null))
                 );
-            }
-            case STATUS_NOT_IN_QUEUE -> new QueuePositionResult(QueueStatus.NOT_IN_QUEUE, 0, 0, 0, 0);
-            default -> throw new IllegalStateException("알 수 없는 대기열 상태 코드: " + statusCode);
-        };
     }
 
     private long calculateEstimatedWait(long position) {

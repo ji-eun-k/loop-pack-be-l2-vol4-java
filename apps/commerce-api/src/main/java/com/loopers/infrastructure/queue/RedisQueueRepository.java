@@ -1,5 +1,6 @@
 package com.loopers.infrastructure.queue;
 
+import com.loopers.domain.queue.QueuePositionSnapshot;
 import com.loopers.domain.queue.QueueRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -7,13 +8,13 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 @RequiredArgsConstructor
 public class RedisQueueRepository implements QueueRepository {
 
     private static final String WAITING_KEY = "queue:waiting";
-    private static final String ACTIVE_KEY_PREFIX = "queue:active:";
 
     @SuppressWarnings("unchecked")
     private static final RedisScript<List<Long>> ENTER_SCRIPT =
@@ -36,12 +37,18 @@ public class RedisQueueRepository implements QueueRepository {
     }
 
     @Override
-    public List<Long> getPosition(Long userId) {
-        String activeKey = ACTIVE_KEY_PREFIX + userId;
-        return redisTemplate.execute(
+    public Optional<QueuePositionSnapshot> findPositionSnapshot(Long userId) {
+        List<Long> raw = redisTemplate.execute(
                 POSITION_SCRIPT,
-                List.of(WAITING_KEY, activeKey),
+                List.of(WAITING_KEY),
                 userId.toString()
         );
+        if (raw == null || raw.isEmpty()) {
+            return Optional.empty();
+        }
+        if (raw.size() == 1 && raw.get(0) == -1L) {
+            return Optional.empty();
+        }
+        return Optional.of(new QueuePositionSnapshot(raw.get(0), raw.get(1)));
     }
 }
