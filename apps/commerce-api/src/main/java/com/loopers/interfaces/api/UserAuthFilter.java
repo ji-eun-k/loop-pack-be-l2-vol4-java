@@ -69,6 +69,10 @@ public class UserAuthFilter extends OncePerRequestFilter {
             return false;
         }
 
+        if (uri.startsWith("/api/v1/queue")) {
+            return false;
+        }
+
         if (uri.matches("/api/v1/coupons/[^/]+/issue")) {
             return false;
         }

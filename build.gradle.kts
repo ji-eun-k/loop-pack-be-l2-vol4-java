@@ -39,6 +39,9 @@ subprojects {
     apply(plugin = "io.spring.dependency-management")
     apply(plugin = "jacoco")
 
+    // Docker Engine 29+ 는 구버전 Docker API 요청을 거부하므로, BOM 관리 버전(1.20.6) 대신 호환 버전 사용
+    ext["testcontainers.version"] = "1.21.4"
+
     dependencyManagement {
         imports {
             mavenBom("org.springframework.cloud:spring-cloud-dependencies:${project.properties["springCloudDependenciesVersion"]}")
