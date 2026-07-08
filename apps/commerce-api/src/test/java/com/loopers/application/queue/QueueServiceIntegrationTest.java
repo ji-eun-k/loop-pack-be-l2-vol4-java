@@ -2,6 +2,7 @@ package com.loopers.application.queue;
 
 import com.loopers.application.queue.QueueEntry;
 import com.loopers.application.queue.QueuePosition;
+import com.loopers.application.queue.QueueProperties;
 import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.domain.queue.QueueStatus;
 import com.loopers.testcontainers.RedisTestContainersConfig;
@@ -34,6 +35,9 @@ class QueueServiceIntegrationTest {
     private EntryTokenRepository entryTokenRepository;
 
     @Autowired
+    private QueueProperties queueProperties;
+
+    @Autowired
     private RedisCleanUp redisCleanUp;
 
     @AfterEach
@@ -61,12 +65,10 @@ class QueueServiceIntegrationTest {
 
         @DisplayName("여러 유저가 순서대로 진입하면 FIFO 순번이 부여된다.")
         @Test
-        void assignFifoRank_whenMultipleUsersEnter() throws InterruptedException {
+        void assignFifoRank_whenMultipleUsersEnter() {
             // act
             QueueEntry first = queueService.enter(1L);
-            Thread.sleep(2);
             QueueEntry second = queueService.enter(2L);
-            Thread.sleep(2);
             QueueEntry third = queueService.enter(3L);
 
             // assert
@@ -80,12 +82,10 @@ class QueueServiceIntegrationTest {
 
         @DisplayName("이미 대기 중인 유저가 재진입하면 position이 맨 뒤로 밀린다.")
         @Test
-        void moveToBack_whenReEntering() throws InterruptedException {
+        void moveToBack_whenReEntering() {
             // arrange
             queueService.enter(1L);
-            Thread.sleep(2);
             queueService.enter(2L);
-            Thread.sleep(2);
 
             // act - userId=1 재진입 → score 갱신되어 userId=2 뒤로 밀림
             QueueEntry reEntry = queueService.enter(1L);
@@ -101,10 +101,9 @@ class QueueServiceIntegrationTest {
 
         @DisplayName("대기 중인 유저의 순번과 전체 대기 인원을 반환한다.")
         @Test
-        void returnWaitingInfo_whenUserIsWaiting() throws InterruptedException {
+        void returnWaitingInfo_whenUserIsWaiting() {
             // arrange
             queueService.enter(1L);
-            Thread.sleep(2);
             queueService.enter(2L);
 
             // act
@@ -153,8 +152,9 @@ class QueueServiceIntegrationTest {
             // act
             QueuePosition result = queueService.getPosition(1L);
 
-            // assert - ceil(1 / 75 * 1) = 1초
-            assertThat(result.estimatedWaitSeconds()).isEqualTo(1L);
+            // assert - ceil(1 / batchSize * intervalSeconds)
+            long expectedWait = (long) Math.ceil(1.0 / queueProperties.getBatchSize() * queueProperties.getSchedulerIntervalMs() / 1000.0);
+            assertThat(result.estimatedWaitSeconds()).isEqualTo(expectedWait);
         }
 
         @DisplayName("대기 중인 유저의 다음 폴링 간격은 순번에 따라 달라진다.")
@@ -198,6 +198,7 @@ class QueueServiceIntegrationTest {
             CountDownLatch startLatch = new CountDownLatch(1);
             CountDownLatch doneLatch = new CountDownLatch(threadCount);
             List<Long> positions = Collections.synchronizedList(new ArrayList<>());
+            List<String> errors = Collections.synchronizedList(new ArrayList<>());
 
             for (long i = 1; i <= threadCount; i++) {
                 final long userId = i;
@@ -208,6 +209,8 @@ class QueueServiceIntegrationTest {
                         positions.add(entry.position());
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        errors.add("userId=" + userId + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
                     } finally {
                         doneLatch.countDown();
                     }
@@ -221,6 +224,7 @@ class QueueServiceIntegrationTest {
 
             // assert - 순번 중복 없음, 전원 정상 진입
             assertAll(
+                    () -> assertThat(errors).as("스레드 예외 발생: " + errors).isEmpty(),
                     () -> assertThat(positions).hasSize(threadCount),
                     () -> assertThat(new HashSet<>(positions)).hasSize(threadCount)
             );

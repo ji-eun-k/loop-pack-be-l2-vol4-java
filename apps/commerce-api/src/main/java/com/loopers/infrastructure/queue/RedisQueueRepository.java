@@ -30,11 +30,10 @@ public class RedisQueueRepository implements QueueRepository {
 
     @Override
     public List<Long> enter(Long userId) {
-        long score = System.currentTimeMillis();
         return redisTemplate.execute(
                 ENTER_SCRIPT,
                 List.of(WAITING_KEY),
-                userId.toString(), String.valueOf(score)
+                userId.toString()
         );
     }
 

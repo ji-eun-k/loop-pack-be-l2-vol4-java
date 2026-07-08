@@ -82,6 +82,9 @@ spring:
     activate:
       on-profile: local, test
 
+queue:
+  scheduler-interval-ms: 3600000
+
 ---
 spring:
   config:
