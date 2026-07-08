@@ -1,5 +1,7 @@
 package com.loopers.interfaces.api;
 
+import com.loopers.application.user.UserService;
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.infrastructure.brand.BrandEntity;
 import com.loopers.infrastructure.brand.BrandJpaRepository;
 import com.loopers.infrastructure.product.ProductEntity;
@@ -8,7 +10,9 @@ import com.loopers.infrastructure.product.ProductStockEntity;
 import com.loopers.infrastructure.product.ProductStockJpaRepository;
 import com.loopers.interfaces.api.order.OrderV1Dto;
 import com.loopers.interfaces.api.user.UserV1Dto;
+import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
+import com.loopers.utils.RedisCleanUp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -32,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RedisTestContainersConfig.class)
 class OrderV1ApiE2ETest {
 
     private static final String ORDERS_URL = "/api/v1/orders";
@@ -39,12 +45,16 @@ class OrderV1ApiE2ETest {
 
     private static final String LOGIN_ID = "orderuser";
     private static final String LOGIN_PW = "pAssWord1!";
+    private static final String QUEUE_TOKEN = "test-queue-token";
 
     @Autowired private TestRestTemplate testRestTemplate;
     @Autowired private BrandJpaRepository brandJpaRepository;
     @Autowired private ProductJpaRepository productJpaRepository;
     @Autowired private ProductStockJpaRepository productStockJpaRepository;
     @Autowired private DatabaseCleanUp databaseCleanUp;
+    @Autowired private RedisCleanUp redisCleanUp;
+    @Autowired private EntryTokenRepository entryTokenRepository;
+    @Autowired private UserService userService;
 
     private Long productId;
 
@@ -56,6 +66,9 @@ class OrderV1ApiE2ETest {
             new ParameterizedTypeReference<ApiResponse<UserV1Dto.UserResponse>>() {}
         );
 
+        Long userId = userService.getUser(LOGIN_ID, LOGIN_PW).getId();
+        entryTokenRepository.save(userId, QUEUE_TOKEN, 300);
+
         BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
         ProductEntity product = productJpaRepository.save(new ProductEntity(brand.getId(), "청바지", BigDecimal.valueOf(50000)));
         productStockJpaRepository.save(new ProductStockEntity(product.getId(), 10L));
@@ -64,6 +77,7 @@ class OrderV1ApiE2ETest {
 
     @AfterEach
     void tearDown() {
+        redisCleanUp.truncateAll();
         databaseCleanUp.truncateAllTables();
     }
 
@@ -71,6 +85,22 @@ class OrderV1ApiE2ETest {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Loopers-LoginId", LOGIN_ID);
         headers.set("X-Loopers-LoginPw", LOGIN_PW);
+        headers.set("X-Queue-Token", QUEUE_TOKEN);
+        return headers;
+    }
+
+    private HttpHeaders authHeadersWithoutToken() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Loopers-LoginId", LOGIN_ID);
+        headers.set("X-Loopers-LoginPw", LOGIN_PW);
+        return headers;
+    }
+
+    private HttpHeaders authHeadersWithWrongToken() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Loopers-LoginId", LOGIN_ID);
+        headers.set("X-Loopers-LoginPw", LOGIN_PW);
+        headers.set("X-Queue-Token", "wrong-token");
         return headers;
     }
 
@@ -123,6 +153,38 @@ class OrderV1ApiE2ETest {
             );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
+
+        @DisplayName("입장 토큰이 없으면, 403을 반환한다.")
+        @Test
+        void returnsForbidden_whenQueueTokenIsMissing() {
+            OrderV1Dto.OrderCreateRequest request = new OrderV1Dto.OrderCreateRequest(
+                List.of(new OrderV1Dto.OrderCreateRequest.Item(productId, 1)), null
+            );
+
+            ResponseEntity<ApiResponse<OrderV1Dto.OrderCreateResponse>> response = testRestTemplate.exchange(
+                ORDERS_URL, HttpMethod.POST,
+                new HttpEntity<>(request, authHeadersWithoutToken()),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+
+        @DisplayName("입장 토큰이 일치하지 않으면, 403을 반환한다.")
+        @Test
+        void returnsForbidden_whenQueueTokenIsInvalid() {
+            OrderV1Dto.OrderCreateRequest request = new OrderV1Dto.OrderCreateRequest(
+                List.of(new OrderV1Dto.OrderCreateRequest.Item(productId, 1)), null
+            );
+
+            ResponseEntity<ApiResponse<OrderV1Dto.OrderCreateResponse>> response = testRestTemplate.exchange(
+                ORDERS_URL, HttpMethod.POST,
+                new HttpEntity<>(request, authHeadersWithWrongToken()),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         }
 
         @DisplayName("존재하지 않는 상품을 주문하면, 404를 반환한다.")

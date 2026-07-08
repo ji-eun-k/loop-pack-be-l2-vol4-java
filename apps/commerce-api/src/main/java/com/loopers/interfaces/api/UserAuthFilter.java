@@ -24,7 +24,7 @@ public class UserAuthFilter extends OncePerRequestFilter {
 
     private static final String HEADER_LOGIN_ID = "X-Loopers-LoginId";
     private static final String HEADER_LOGIN_PW = "X-Loopers-LoginPw";
-    static final String AUTHENTICATED_USER_ATTR = "authenticatedUser";
+    public static final String AUTHENTICATED_USER_ATTR = "authenticatedUser";
 
     private final ObjectMapper objectMapper;
     private final UserService userService;

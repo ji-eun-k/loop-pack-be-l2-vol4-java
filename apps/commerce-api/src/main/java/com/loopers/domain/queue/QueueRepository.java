@@ -15,4 +15,9 @@ public interface QueueRepository {
      * 대기열에서 현재 순번을 조회한다. 대기열에 없으면 empty.
      */
     Optional<QueuePositionSnapshot> findPositionSnapshot(Long userId);
+
+    /**
+     * 대기열 앞에서 n명을 꺼낸다 (score 오름차순, 즉 먼저 진입한 순서).
+     */
+    List<Long> popOldest(int n);
 }

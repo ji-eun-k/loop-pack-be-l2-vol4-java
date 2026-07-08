@@ -66,9 +66,9 @@ return {rank, total}
 ```
 
 > **Step 1 체크리스트**
-> - [ ] Redis Sorted Set 기반 대기열 진입 API 구현 (`POST /queue/enter`)
-> - [ ] userId 기반 중복 진입 방지 (Sorted Set member 중복 불허, 재진입 시 score 갱신으로 뒤로 밀림)
-> - [ ] 전체 대기 인원 조회 (ZCARD)
+> - [x] Redis Sorted Set 기반 대기열 진입 API 구현 (`POST /queue/enter`)
+> - [x] userId 기반 중복 진입 방지 (Sorted Set member 중복 불허, 재진입 시 score 갱신으로 뒤로 밀림)
+> - [x] 전체 대기 인원 조회 (ZCARD)
 
 ### 3-2. 스케줄러 입장 토큰 발급
 
@@ -93,9 +93,9 @@ for (Long userId : userIds) {
 ```
 
 > **Step 2 체크리스트**
-> - [ ] 스케줄러가 주기적으로 대기열에서 N명을 꺼내 입장 토큰 발급
-> - [ ] 토큰 TTL 설정 (`SET EX` + `QueueProperties.tokenTtlSeconds`)
-> - [ ] 처리량 기준으로 스케줄러 배치 크기 산정 근거 문서화 → §6 QueueProperties 참조
+> - [x] 스케줄러가 주기적으로 대기열에서 N명을 꺼내 입장 토큰 발급
+> - [x] 토큰 TTL 설정 (`SET EX` + `QueueProperties.tokenTtlSeconds`)
+> - [x] 처리량 기준으로 스케줄러 배치 크기 산정 근거 문서화 → §6 QueueProperties 참조
 
 ### 3-3. 순번 조회 Lua (position)
 
@@ -203,52 +203,49 @@ QueueScheduler                         Redis
 ```
 
 > **Step 3 체크리스트**
-> - [ ] Polling 기반 순번 + 예상 대기 시간 응답
-> - [ ] 토큰 발급 시 (`status: ACTIVE`) 순번 조회 응답에 입장 가능 상태 포함
-> - [ ] 예상 대기 시간 계산 로직 구현 → §8 참조
+> - [x] Polling 기반 순번 + 예상 대기 시간 응답
+> - [x] 토큰 발급 시 (`status: ACTIVE`) 순번 조회 응답에 입장 가능 상태 포함
+> - [x] 예상 대기 시간 계산 로직 구현 → §8 참조
 
-### 4-4. 주문 API 진입 검증
+### 4-4. 주문 토큰 검증 및 삭제
 
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant F as UserAuthFilter
+    participant I as QueueTokenInterceptor
+    participant O as OrderFacade
+    participant R as Redis
+    participant E as ApplicationEventPublisher
+    participant L as QueueTokenCleanupListener
+
+    C->>F: POST /api/v1/orders<br/>X-Loopers-LoginId/Pw<br/>X-Queue-Token: {uuid}
+    F->>F: LoginId/Pw 검증
+    alt 인증 실패
+        F-->>C: 401 Unauthorized
+    end
+
+    F->>I: 인증 통과 (request에 User 저장)
+    I->>R: GET queue:active:{userId}
+    R-->>I: "stored-uuid"
+
+    alt 토큰 불일치 or 없음
+        I-->>C: 403 Forbidden
+    end
+
+    I->>O: 토큰 일치 → createOrder()
+    O->>O: 주문 처리
+    O->>E: publishEvent(OrderCompletedEvent(userId))
+    E->>L: @EventListener 호출
+    L->>R: DEL queue:active:{userId}
+    O-->>C: 201 Created
 ```
-클라이언트                    QueueTokenInterceptor     Redis       OrderController
-    │                                │                    │               │
-    │  POST /api/v1/orders            │                    │               │
-    │  X-Queue-Token: {uuid}          │                    │               │
-    │ ──────────────────────────── > │                    │               │
-    │                                 │  GET               │               │
-    │                                 │  queue:active:{id} │               │
-    │                                 │ ─────────────────> │               │
-    │                                 │ <── "stored-uuid"  │               │
-    │                                 │                    │               │
-    │                    [헤더 uuid == stored uuid] ───────────────────── >│
-    │                    [불일치 or 없음] 403 반환  │               │
-    │ <── 403 FORBIDDEN               │                    │               │
-```
 
-클라이언트는 position 폴링에서 받은 `entryToken`을 `X-Queue-Token` 헤더에 담아 주문 API를 호출한다.
-인터셉터는 Redis에 저장된 UUID 값과 헤더 값을 비교해 일치할 때만 통과시킨다.
+> 토큰 삭제(`DEL`)가 실패하더라도 `tokenTtlSeconds(300s)` 후 자동 만료된다.
 
 > **Step 2 체크리스트**
-> - [ ] 주문 API 진입 시 토큰 검증 (`QueueTokenInterceptor` → `/api/v1/orders/**`)
-
-### 4-5. 주문 완료 후 토큰 정리
-
-```
-OrderFacade      ApplicationEventPublisher    QueueTokenCleanupListener   Redis
-    │                     │                            │                    │
-    │  createOrder() 완료  │                            │                    │
-    │  publishEvent(       │                            │                    │
-    │  OrderCompletedEvent)│                            │                    │
-    │ ──────────────────── >                            │                    │
-    │                      │  @EventListener 호출       │                    │
-    │                      │ ─────────────────────────> │                    │
-    │                      │                            │  DEL active:{id}   │
-    │                      │                            │ ─────────────────> │
-    │                      │                            │  (실패해도 TTL 만료)│
-```
-
-> **Step 2 체크리스트**
-> - [ ] 주문 완료 후 토큰 삭제 (`OrderCompletedEvent` → `QueueTokenCleanupListener`)
+> - [x] 주문 API 진입 시 토큰 검증 (`QueueTokenInterceptor` → `POST /api/v1/orders`)
+> - [x] 주문 완료 후 토큰 삭제 (`OrderCompletedEvent` → `QueueTokenCleanupListener`)
 
 ---
 
@@ -265,11 +262,11 @@ apps/commerce-api/src/main/java/com/loopers/
 ├── infrastructure/queue/
 │   ├── RedisQueueRepository.java       — Lua: enter(ZADD+ZRANK+ZCARD), findPositionSnapshot(ZRANK+ZCARD)
 │   ├── RedisEntryTokenRepository.java  — opsForValue GET/SET EX/DEL (queue:active:{userId})
-│   ├── QueueLuaScripts.java            — Lua 스크립트 상수 정의
-│   └── QueueScheduler.java             — @Scheduled, 1초마다 ZPOPMIN + 입장 토큰 발급
+│   └── QueueLuaScripts.java            — Lua 스크립트 상수 정의
 │
 ├── application/queue/
 │   ├── QueueService.java         — enter / getPosition
+│   ├── QueueScheduler.java       — @Scheduled, 1초마다 ZPOPMIN + 입장 토큰 발급
 │   ├── QueueEntry.java           — status, position, waitingCount, estimatedWaitSeconds
 │   ├── QueuePosition.java        — status, position, waitingCount, nextPollAfterMs, estimatedWaitSeconds, entryToken
 │   └── QueueProperties.java      — @ConfigurationProperties(prefix = "queue")
@@ -428,7 +425,7 @@ queue:
 > | 스파이크 시 오버로드 위험 | 있음 | 낮음 |
 
 > **Step 2 체크리스트**
-> - [ ] 처리량 기준(DB 커넥션 풀, 평균 처리 시간)으로 스케줄러 배치 크기 산정 근거 문서화
+> - [x] 처리량 기준(DB 커넥션 풀, 평균 처리 시간)으로 스케줄러 배치 크기 산정 근거 문서화
 
 ### QueueLuaScripts
 
@@ -469,7 +466,7 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 ```
 
 > **Step 3 체크리스트 (Nice-To-Have)**
-> - [ ] Polling 주기 동적 조절 (순번 구간별)
+> - [x] Polling 주기 동적 조절 (순번 구간별)
 
 ---
 
@@ -496,7 +493,7 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 ```
 
 > **Step 3 체크리스트**
-> - [ ] 예상 대기 시간 계산 로직 구현
+> - [x] 예상 대기 시간 계산 로직 구현
 
 ---
 
@@ -518,16 +515,16 @@ Phase 2. Application + API  ✅ 완료
   ├── QueueV1Dto (EnterResponse / PositionResponse+entryToken)
   └── QueueV1Controller (POST /enter, GET /position)
 
-Phase 3. 주문 가드
+Phase 3. 주문 가드  ✅ 완료
   ├── OrderCompletedEvent record
   ├── QueueTokenCleanupListener @EventListener (entryTokenRepository.delete)
   ├── QueueTokenInterceptor (X-Queue-Token 헤더 검증)
-  └── WebMvcConfig에 /api/v1/orders/** 인터셉터 등록
+  └── WebMvcConfig에 POST /api/v1/orders 인터셉터 등록
 
-Phase 4. 스케줄러 + 설정
+Phase 4. 스케줄러 + 설정  ✅ 완료
   ├── QueueProperties @ConfigurationProperties
   └── QueueScheduler @Scheduled (ZPOPMIN → entryTokenRepository.save)
 
-Phase 5. (Nice-To-Have) Polling 주기 동적 조절
-  └── QueuePositionResult.nextPollAfterMs 구간별 계산
+Phase 5. (Nice-To-Have) Polling 주기 동적 조절  ✅ 완료
+  └── QueuePosition.nextPollAfterMs 구간별 계산
 ```

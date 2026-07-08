@@ -4,11 +4,13 @@ import com.loopers.domain.queue.QueuePositionSnapshot;
 import com.loopers.domain.queue.QueueRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 @RequiredArgsConstructor
@@ -34,6 +36,18 @@ public class RedisQueueRepository implements QueueRepository {
                 List.of(WAITING_KEY),
                 userId.toString(), String.valueOf(score)
         );
+    }
+
+    @Override
+    public List<Long> popOldest(int n) {
+        Set<ZSetOperations.TypedTuple<String>> popped =
+                redisTemplate.opsForZSet().popMin(WAITING_KEY, n);
+        if (popped == null || popped.isEmpty()) {
+            return List.of();
+        }
+        return popped.stream()
+                .map(tuple -> Long.parseLong(tuple.getValue()))
+                .toList();
     }
 
     @Override

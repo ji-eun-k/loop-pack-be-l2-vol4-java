@@ -1,5 +1,7 @@
 package com.loopers.interfaces.api;
 
+import com.loopers.application.user.UserService;
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.interfaces.api.queue.QueueV1Dto;
 import com.loopers.interfaces.api.user.UserV1Dto;
 import com.loopers.testcontainers.RedisTestContainersConfig;
@@ -40,6 +42,12 @@ public class QueueV1ApiE2ETest {
 
     @Autowired
     private RedisCleanUp redisCleanUp;
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private EntryTokenRepository entryTokenRepository;
 
     @BeforeEach
     void setUp() {
@@ -162,6 +170,72 @@ public class QueueV1ApiE2ETest {
             assertAll(
                     () -> assertTrue(response.getStatusCode().is2xxSuccessful()),
                     () -> assertThat(response.getBody().data().status()).isEqualTo("NOT_IN_QUEUE")
+            );
+        }
+
+        @DisplayName("입장 토큰이 발급된 유저는 ACTIVE 상태와 entryToken을 반환한다.")
+        @Test
+        void returnActiveWithToken_whenEntryTokenIssued() {
+            // arrange
+            Long userId = userService.getUser(LOGIN_ID_1, LOGIN_PW).getId();
+            entryTokenRepository.save(userId, "test-entry-token", 300);
+
+            // act
+            ResponseEntity<ApiResponse<QueueV1Dto.PositionResponse>> response = testRestTemplate.exchange(
+                    QUEUE_V1_PATH + "/position", HttpMethod.GET,
+                    new HttpEntity<>(authHeaders(LOGIN_ID_1)),
+                    new ParameterizedTypeReference<>() {}
+            );
+
+            // assert
+            assertAll(
+                    () -> assertTrue(response.getStatusCode().is2xxSuccessful()),
+                    () -> assertThat(response.getBody().data().status()).isEqualTo("ACTIVE"),
+                    () -> assertThat(response.getBody().data().entryToken()).isEqualTo("test-entry-token")
+            );
+        }
+
+        @DisplayName("대기 중인 유저의 응답에 예상 대기 시간이 포함된다.")
+        @Test
+        void returnsEstimatedWaitSeconds_whenUserIsWaiting() {
+            // arrange
+            testRestTemplate.exchange(QUEUE_V1_PATH + "/enter", HttpMethod.POST,
+                    new HttpEntity<>(authHeaders(LOGIN_ID_1)),
+                    new ParameterizedTypeReference<ApiResponse<QueueV1Dto.EnterResponse>>() {});
+
+            // act
+            ResponseEntity<ApiResponse<QueueV1Dto.PositionResponse>> response = testRestTemplate.exchange(
+                    QUEUE_V1_PATH + "/position", HttpMethod.GET,
+                    new HttpEntity<>(authHeaders(LOGIN_ID_1)),
+                    new ParameterizedTypeReference<>() {}
+            );
+
+            // assert - position=1, batchSize=75, interval=1s → ceil(1/75*1) = 1초
+            assertAll(
+                    () -> assertTrue(response.getStatusCode().is2xxSuccessful()),
+                    () -> assertThat(response.getBody().data().estimatedWaitSeconds()).isGreaterThan(0L)
+            );
+        }
+
+        @DisplayName("대기 중인 유저의 응답에 다음 폴링 간격이 포함된다.")
+        @Test
+        void returnsNextPollAfterMs_whenUserIsWaiting() {
+            // arrange
+            testRestTemplate.exchange(QUEUE_V1_PATH + "/enter", HttpMethod.POST,
+                    new HttpEntity<>(authHeaders(LOGIN_ID_1)),
+                    new ParameterizedTypeReference<ApiResponse<QueueV1Dto.EnterResponse>>() {});
+
+            // act
+            ResponseEntity<ApiResponse<QueueV1Dto.PositionResponse>> response = testRestTemplate.exchange(
+                    QUEUE_V1_PATH + "/position", HttpMethod.GET,
+                    new HttpEntity<>(authHeaders(LOGIN_ID_1)),
+                    new ParameterizedTypeReference<>() {}
+            );
+
+            // assert - position=1 (50 이하) → 1_000ms
+            assertAll(
+                    () -> assertTrue(response.getStatusCode().is2xxSuccessful()),
+                    () -> assertThat(response.getBody().data().nextPollAfterMs()).isEqualTo(1_000L)
             );
         }
     }
