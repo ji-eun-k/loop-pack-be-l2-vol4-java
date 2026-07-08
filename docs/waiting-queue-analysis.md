@@ -19,16 +19,17 @@
 ## 2. 핵심 개념: Redis Sorted Set
 
 ```
-ZADD waiting-queue {입장요청시각(Unix timestamp ms)} {userId}
+ZADD waiting-queue {입장요청시각(Redis TIME 기반 Unix timestamp µs)} {userId}
 
 예시:
-ZADD waiting-queue 1720000001 "1"
-ZADD waiting-queue 1720000002 "2"
-ZADD waiting-queue 1720000003 "3"
+ZADD waiting-queue 1720000001000001 "1"
+ZADD waiting-queue 1720000001000257 "2"
+ZADD waiting-queue 1720000002000042 "3"
 ```
 
 - `score` = 입장 요청 시각 → 먼저 온 사람이 작은 score → ZRANK로 순번 조회 (0-based)
 - `value` = userId
+- score는 애플리케이션 서버 시각(ms)이 아니라 **Lua 스크립트 내에서 Redis `TIME` 명령어로 얻은 마이크로초(µs) 단위 시각**을 사용한다 (이유는 3-1 참조)
 
 | Redis 명령어 | 역할 |
 |---|---|
@@ -54,16 +55,32 @@ ZADD + ZRANK + ZCARD를 따로 3번 호출하면 ZADD와 ZRANK 사이에 다른 
 ```lua
 -- KEYS[1] : "queue:waiting"
 -- ARGV[1] : userId (string)
--- ARGV[2] : score (현재 Unix timestamp milliseconds)
+
+-- score는 Redis TIME 기반 마이크로초(µs) 시각
+local t = redis.call('TIME')   -- {초, 마이크로초}
+local score = tonumber(t[1]) * 1000000 + tonumber(t[2])
 
 -- 재진입 시 score 갱신 → 줄 맨 뒤로 밀림 (의도된 동작)
-redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+redis.call('ZADD', KEYS[1], score, ARGV[1])
 
 local rank  = redis.call('ZRANK', KEYS[1], ARGV[1])
 local total = redis.call('ZCARD', KEYS[1])
 
 return {rank, total}
 ```
+
+**왜 score를 Java가 아닌 Redis `TIME`으로 계산하는가?**
+
+처음에는 Java에서 `System.currentTimeMillis()`를 ARGV로 전달했으나, 동시 진입 테스트에서 순번 중복 버그가 발견되어 변경했다.
+
+- **문제**: 여러 유저가 같은 millisecond에 진입하면 score가 완전히 동일해진다. Redis ZSet은 score가 같으면 member를 **문자열 사전순**으로 정렬하는데 (`"1" < "10" < "2" < "3"`), 이후 사전순으로 앞서는 userId가 진입하면 이미 순번을 안내받은 유저의 rank가 밀린다. 결과적으로 서로 다른 유저가 같은 순번을 안내받거나, 안내받은 순번이 뒤바뀐다.
+- **해결**: Redis는 단일 스레드라서 Lua 스크립트 두 개가 동시에 실행될 수 없다. Lua 안에서 `TIME`(마이크로초 정밀도)으로 score를 계산하면 순차 실행이 보장되어 score 충돌이 사실상 불가능하다.
+- **부수 효과**: 분산 환경에서 애플리케이션 서버가 여러 대여도 Redis 서버 시계 하나만 기준이 되므로, 서버 간 시계 오차(clock skew)로 인한 순서 왜곡도 함께 사라진다.
+
+| 방식 | 정밀도 | 동시 진입 시 충돌 | 분산 환경 시계 오차 |
+|---|---|---|---|
+| Java `System.currentTimeMillis()` (ARGV 전달) | ms | 발생 (같은 ms → 같은 score) | 서버별 시계 차이 존재 |
+| Redis `TIME` (Lua 내 계산) | µs + 순차 실행 보장 | 사실상 불가능 | Redis 시계 단일 기준 |
 
 
 ### 3-2. 스케줄러 입장 토큰 발급
@@ -413,10 +430,13 @@ queue:
 ```java
 public final class QueueLuaScripts {
 
-    // KEYS[1]: "queue:waiting", ARGV[1]: userId, ARGV[2]: score
+    // KEYS[1]: "queue:waiting", ARGV[1]: userId
+    // score: Redis TIME 기반 µs 시각 (Lua 내 계산 — 이유는 3-1 참조)
     // returns: {rank(0-based), totalCount}
     public static final String ENTER = """
-        redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+        local t = redis.call('TIME')
+        local score = tonumber(t[1]) * 1000000 + tonumber(t[2])
+        redis.call('ZADD', KEYS[1], score, ARGV[1])
         local rank  = redis.call('ZRANK', KEYS[1], ARGV[1])
         local total = redis.call('ZCARD', KEYS[1])
         return {rank, total}
@@ -453,7 +473,7 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 
 | Key | 형태 | 설명 |
 |---|---|---|
-| `queue:waiting` | Sorted Set | score = 입장 시각 (ms), member = userId |
+| `queue:waiting` | Sorted Set | score = 입장 시각 (Redis TIME 기반 µs), member = userId |
 | `queue:active:{userId}` | String | 값 = UUID 토큰, TTL = 300초 |
 
 ---
