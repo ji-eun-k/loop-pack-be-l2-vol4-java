@@ -257,13 +257,10 @@ OrderFacade      ApplicationEventPublisher    QueueTokenCleanupListener   Redis
 ```
 apps/commerce-api/src/main/java/com/loopers/
 ├── domain/queue/
-│   ├── QueueService.java           — enter / getPosition
 │   ├── QueueRepository.java        — enter / findPositionSnapshot 인터페이스
 │   ├── EntryTokenRepository.java   — save / find / delete 인터페이스
 │   ├── QueuePositionSnapshot.java  — rank(0-based), totalWaiting record
-│   ├── QueueStatus.java            — WAITING / ACTIVE / NOT_IN_QUEUE
-│   ├── QueueEntryResult.java       — status, position, waitingCount, estimatedWaitSeconds
-│   └── QueuePositionResult.java    — status, position, waitingCount, nextPollAfterMs, estimatedWaitSeconds, entryToken
+│   └── QueueStatus.java            — WAITING / ACTIVE / NOT_IN_QUEUE
 │
 ├── infrastructure/queue/
 │   ├── RedisQueueRepository.java       — Lua: enter(ZADD+ZRANK+ZCARD), findPositionSnapshot(ZRANK+ZCARD)
@@ -272,6 +269,9 @@ apps/commerce-api/src/main/java/com/loopers/
 │   └── QueueScheduler.java             — @Scheduled, 1초마다 ZPOPMIN + 입장 토큰 발급
 │
 ├── application/queue/
+│   ├── QueueService.java         — enter / getPosition
+│   ├── QueueEntry.java           — status, position, waitingCount, estimatedWaitSeconds
+│   ├── QueuePosition.java        — status, position, waitingCount, nextPollAfterMs, estimatedWaitSeconds, entryToken
 │   └── QueueProperties.java      — @ConfigurationProperties(prefix = "queue")
 │
 ├── interfaces/api/queue/
@@ -292,31 +292,31 @@ apps/commerce-api/src/main/java/com/loopers/
 ### QueueService
 
 ```java
-QueueEntryResult enter(Long userId);          // 대기열 진입, 재진입 시 줄 맨 뒤
-QueuePositionResult getPosition(Long userId); // ① 토큰 조회 → ② 순번 조회 → ③ NOT_IN_QUEUE
+QueueEntry enter(Long userId);          // 대기열 진입, 재진입 시 줄 맨 뒤
+QueuePosition getPosition(Long userId); // ① 토큰 조회 → ② 순번 조회 → ③ NOT_IN_QUEUE
 ```
 
 ```java
 // getPosition 내부 로직
-return entryTokenRepository.find(userId)                      // ① ACTIVE?
-    .map(token -> new QueuePositionResult(ACTIVE, ..., token))
+return entryTokenRepository.find(userId)                  // ① ACTIVE?
+    .map(token -> new QueuePosition(ACTIVE, ..., token))
     .orElseGet(() -> queueRepository.findPositionSnapshot(userId)  // ② WAITING?
-        .map(snapshot -> new QueuePositionResult(WAITING, ...))
-        .orElse(new QueuePositionResult(NOT_IN_QUEUE, ...))        // ③
+        .map(snapshot -> new QueuePosition(WAITING, ...))
+        .orElse(new QueuePosition(NOT_IN_QUEUE, ...))        // ③
     );
 ```
 
-### QueueEntryResult / QueuePositionResult
+### QueueEntry / QueuePosition
 
 ```java
-record QueueEntryResult(
+record QueueEntry(
     QueueStatus status,       // WAITING or ACTIVE
     long position,            // 1-based 순번
     long waitingCount,
     long estimatedWaitSeconds
 ) {}
 
-record QueuePositionResult(
+record QueuePosition(
     QueueStatus status,
     long position,
     long waitingCount,
@@ -505,16 +505,16 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 ```
 Phase 1. 도메인 + Redis  ✅ 완료
   ├── QueueStatus enum
-  ├── QueueEntryResult, QueuePositionResult(+entryToken) record
   ├── QueuePositionSnapshot record
   ├── QueueRepository 인터페이스 (enter / findPositionSnapshot)
   ├── EntryTokenRepository 인터페이스 (save / find / delete)
   ├── QueueLuaScripts 상수 클래스
   ├── RedisQueueRepository (Lua: enter, findPositionSnapshot)
-  ├── RedisEntryTokenRepository (opsForValue GET/SET/DEL)
-  └── QueueService (enter / getPosition)
+  └── RedisEntryTokenRepository (opsForValue GET/SET/DEL)
 
-Phase 2. API  ✅ 완료
+Phase 2. Application + API  ✅ 완료
+  ├── QueueEntry, QueuePosition record (application/queue)
+  ├── QueueService (enter / getPosition)
   ├── QueueV1Dto (EnterResponse / PositionResponse+entryToken)
   └── QueueV1Controller (POST /enter, GET /position)
 

@@ -1,7 +1,7 @@
 package com.loopers.application.queue;
 
-import com.loopers.domain.queue.QueueEntryResult;
-import com.loopers.domain.queue.QueuePositionResult;
+import com.loopers.application.queue.QueueEntry;
+import com.loopers.application.queue.QueuePosition;
 import com.loopers.domain.queue.QueueStatus;
 import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.RedisCleanUp;
@@ -36,7 +36,7 @@ class QueueServiceIntegrationTest {
         @Test
         void returnWaiting_whenFirstEnter() {
             // act
-            QueueEntryResult result = queueService.enter(1L);
+            QueueEntry result = queueService.enter(1L);
 
             // assert
             assertAll(
@@ -50,11 +50,11 @@ class QueueServiceIntegrationTest {
         @Test
         void assignFifoRank_whenMultipleUsersEnter() throws InterruptedException {
             // act
-            QueueEntryResult first = queueService.enter(1L);
+            QueueEntry first = queueService.enter(1L);
             Thread.sleep(2);
-            QueueEntryResult second = queueService.enter(2L);
+            QueueEntry second = queueService.enter(2L);
             Thread.sleep(2);
-            QueueEntryResult third = queueService.enter(3L);
+            QueueEntry third = queueService.enter(3L);
 
             // assert
             assertAll(
@@ -75,7 +75,7 @@ class QueueServiceIntegrationTest {
             Thread.sleep(2);
 
             // act - userId=1 재진입 → score 갱신되어 userId=2 뒤로 밀림
-            QueueEntryResult reEntry = queueService.enter(1L);
+            QueueEntry reEntry = queueService.enter(1L);
 
             // assert
             assertThat(reEntry.position()).isEqualTo(2L);
@@ -95,7 +95,7 @@ class QueueServiceIntegrationTest {
             queueService.enter(2L);
 
             // act
-            QueuePositionResult result = queueService.getPosition(1L);
+            QueuePosition result = queueService.getPosition(1L);
 
             // assert
             assertAll(
@@ -109,7 +109,7 @@ class QueueServiceIntegrationTest {
         @Test
         void returnNotInQueue_whenUserNotInQueue() {
             // act
-            QueuePositionResult result = queueService.getPosition(999L);
+            QueuePosition result = queueService.getPosition(999L);
 
             // assert
             assertThat(result.status()).isEqualTo(QueueStatus.NOT_IN_QUEUE);

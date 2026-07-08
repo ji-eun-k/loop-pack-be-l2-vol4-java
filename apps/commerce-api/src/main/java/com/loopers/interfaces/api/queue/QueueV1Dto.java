@@ -1,7 +1,7 @@
 package com.loopers.interfaces.api.queue;
 
-import com.loopers.domain.queue.QueueEntryResult;
-import com.loopers.domain.queue.QueuePositionResult;
+import com.loopers.application.queue.QueueEntry;
+import com.loopers.application.queue.QueuePosition;
 
 public class QueueV1Dto {
 
@@ -11,12 +11,12 @@ public class QueueV1Dto {
             long waitingCount,
             long estimatedWaitSeconds
     ) {
-        public static EnterResponse from(QueueEntryResult result) {
+        public static EnterResponse from(QueueEntry entry) {
             return new EnterResponse(
-                    result.status().name(),
-                    result.position(),
-                    result.waitingCount(),
-                    result.estimatedWaitSeconds()
+                    entry.status().name(),
+                    entry.position(),
+                    entry.waitingCount(),
+                    entry.estimatedWaitSeconds()
             );
         }
     }
@@ -29,14 +29,14 @@ public class QueueV1Dto {
             long estimatedWaitSeconds,
             String entryToken
     ) {
-        public static PositionResponse from(QueuePositionResult result) {
+        public static PositionResponse from(QueuePosition position) {
             return new PositionResponse(
-                    result.status().name(),
-                    result.position(),
-                    result.waitingCount(),
-                    result.nextPollAfterMs(),
-                    result.estimatedWaitSeconds(),
-                    result.entryToken()
+                    position.status().name(),
+                    position.position(),
+                    position.waitingCount(),
+                    position.nextPollAfterMs(),
+                    position.estimatedWaitSeconds(),
+                    position.entryToken()
             );
         }
     }

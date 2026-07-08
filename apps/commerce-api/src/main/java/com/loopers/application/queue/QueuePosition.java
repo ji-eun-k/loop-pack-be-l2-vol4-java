@@ -1,6 +1,8 @@
-package com.loopers.domain.queue;
+package com.loopers.application.queue;
 
-public record QueuePositionResult(
+import com.loopers.domain.queue.QueueStatus;
+
+public record QueuePosition(
         QueueStatus status,
         long position,
         long waitingCount,
