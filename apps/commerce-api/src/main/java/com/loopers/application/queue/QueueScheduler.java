@@ -19,6 +19,8 @@ public class QueueScheduler {
     private final EntryTokenRepository entryTokenRepository;
     private final QueueProperties queueProperties;
     private final JitterDelay jitterDelay;
+    private final SseEmitterRegistry sseEmitterRegistry;
+    private final QueueService queueService;
 
     @Scheduled(fixedDelayString = "${queue.scheduler-interval-ms}")
     public void issueEntryTokens() {
@@ -27,7 +29,17 @@ public class QueueScheduler {
             // 동시에 몰리는 주문 API 호출을 분산시키기 위한 jitter
             long jitterMillis = ThreadLocalRandom.current().nextLong(0, 301);
             jitterDelay.delay(jitterMillis);
-            entryTokenRepository.save(userId, UUID.randomUUID().toString(), queueProperties.getTokenTtlSeconds());
+            String token = UUID.randomUUID().toString();
+            entryTokenRepository.save(userId, token, queueProperties.getTokenTtlSeconds());
+            // ACTIVE 이벤트 전송 후 해당 emitter는 registry에서 제거된다
+            sseEmitterRegistry.sendActive(userId, token);
+        }
+
+        // 토큰 발급 후 아직 대기 중인 SSE 연결자들에게 갱신된 순번을 PUSH한다.
+        // sendActive()로 이미 제거된 userId는 registry에 없으므로 자동으로 제외된다.
+        for (Long waitingUserId : sseEmitterRegistry.getRegisteredUserIds()) {
+            QueuePosition position = queueService.getPosition(waitingUserId);
+            sseEmitterRegistry.sendPosition(waitingUserId, position);
         }
     }
 }

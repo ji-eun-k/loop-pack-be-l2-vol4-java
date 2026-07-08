@@ -65,10 +65,6 @@ local total = redis.call('ZCARD', KEYS[1])
 return {rank, total}
 ```
 
-> **Step 1 체크리스트**
-> - [x] Redis Sorted Set 기반 대기열 진입 API 구현 (`POST /queue/enter`)
-> - [x] userId 기반 중복 진입 방지 (Sorted Set member 중복 불허, 재진입 시 score 갱신으로 뒤로 밀림)
-> - [x] 전체 대기 인원 조회 (ZCARD)
 
 ### 3-2. 스케줄러 입장 토큰 발급
 
@@ -92,10 +88,6 @@ for (Long userId : userIds) {
 }
 ```
 
-> **Step 2 체크리스트**
-> - [x] 스케줄러가 주기적으로 대기열에서 N명을 꺼내 입장 토큰 발급
-> - [x] 토큰 TTL 설정 (`SET EX` + `QueueProperties.tokenTtlSeconds`)
-> - [x] 처리량 기준으로 스케줄러 배치 크기 산정 근거 문서화 → §6 QueueProperties 참조
 
 ### 3-3. 순번 조회 Lua (position)
 
@@ -115,8 +107,6 @@ local total = redis.call('ZCARD', KEYS[1])
 return {rank, total}
 ```
 
-> **Step 1 체크리스트**
-> - [ ] 순번 조회 API 구현 (`GET /queue/position`)
 
 ---
 
@@ -202,10 +192,6 @@ QueueScheduler                         Redis
     │  (이제 주문 API 호출 가능)  │                     │                  │
 ```
 
-> **Step 3 체크리스트**
-> - [x] Polling 기반 순번 + 예상 대기 시간 응답
-> - [x] 토큰 발급 시 (`status: ACTIVE`) 순번 조회 응답에 입장 가능 상태 포함
-> - [x] 예상 대기 시간 계산 로직 구현 → §8 참조
 
 ### 4-4. 주문 토큰 검증 및 삭제
 
@@ -243,9 +229,6 @@ sequenceDiagram
 
 > 토큰 삭제(`DEL`)가 실패하더라도 `tokenTtlSeconds(300s)` 후 자동 만료된다.
 
-> **Step 2 체크리스트**
-> - [x] 주문 API 진입 시 토큰 검증 (`QueueTokenInterceptor` → `POST /api/v1/orders`)
-> - [x] 주문 완료 후 토큰 삭제 (`OrderCompletedEvent` → `QueueTokenCleanupListener`)
 
 ---
 
@@ -424,8 +407,6 @@ queue:
 > | 커넥션 풀 여유 | 낮음 | 높음 |
 > | 스파이크 시 오버로드 위험 | 있음 | 낮음 |
 
-> **Step 2 체크리스트**
-> - [x] 처리량 기준(DB 커넥션 풀, 평균 처리 시간)으로 스케줄러 배치 크기 산정 근거 문서화
 
 ### QueueLuaScripts
 
@@ -454,7 +435,7 @@ public final class QueueLuaScripts {
 }
 ```
 
-### Polling 주기 동적 조절 (Nice-To-Have)
+### Polling 주기 동적 조절
 
 순번이 멀수록 폴링 간격을 늘려 서버 부하를 줄인다.
 
@@ -465,8 +446,6 @@ position 30+   → nextPollAfterMs = 2,000  (2초)
 position 1~29  → nextPollAfterMs = 1,000  (1초)
 ```
 
-> **Step 3 체크리스트 (Nice-To-Have)**
-> - [x] Polling 주기 동적 조절 (순번 구간별)
 
 ---
 
@@ -492,39 +471,123 @@ position 1~29  → nextPollAfterMs = 1,000  (1초)
 → 363 / 75 × 1 = 4.84 ≈ 5초
 ```
 
-> **Step 3 체크리스트**
-> - [x] 예상 대기 시간 계산 로직 구현
 
 ---
 
-## 9. 구현 순서
+## 9. SSE 기반 실시간 순번 PUSH
+
+### 9-1. Polling vs SSE 비교
+
+| 항목 | Polling (`GET /position`) | SSE (`GET /position/stream`) |
+|---|---|---|
+| 연결 방식 | 클라이언트가 주기적으로 요청 | 서버가 스케줄러 틱마다 PUSH |
+| 불필요한 요청 | 있음 (변화 없어도 매 N초 요청) | 없음 |
+| 서버 리소스 | 요청당 연결/해제 | HTTP 커넥션 유지 + 연결 수만큼 Redis 조회 |
+| 구현 복잡도 | 낮음 | 중간 |
+| 적용 환경 | 멀티 인스턴스 포함 모든 환경 | 단일 인스턴스 (멀티는 Redis Pub/Sub 필요) |
+
+### 9-2. 전체 플로우
 
 ```
-Phase 1. 도메인 + Redis  ✅ 완료
-  ├── QueueStatus enum
-  ├── QueuePositionSnapshot record
-  ├── QueueRepository 인터페이스 (enter / findPositionSnapshot)
-  ├── EntryTokenRepository 인터페이스 (save / find / delete)
-  ├── QueueLuaScripts 상수 클래스
-  ├── RedisQueueRepository (Lua: enter, findPositionSnapshot)
-  └── RedisEntryTokenRepository (opsForValue GET/SET/DEL)
-
-Phase 2. Application + API  ✅ 완료
-  ├── QueueEntry, QueuePosition record (application/queue)
-  ├── QueueService (enter / getPosition)
-  ├── QueueV1Dto (EnterResponse / PositionResponse+entryToken)
-  └── QueueV1Controller (POST /enter, GET /position)
-
-Phase 3. 주문 가드  ✅ 완료
-  ├── OrderCompletedEvent record
-  ├── QueueTokenCleanupListener @EventListener (entryTokenRepository.delete)
-  ├── QueueTokenInterceptor (X-Queue-Token 헤더 검증)
-  └── WebMvcConfig에 POST /api/v1/orders 인터셉터 등록
-
-Phase 4. 스케줄러 + 설정  ✅ 완료
-  ├── QueueProperties @ConfigurationProperties
-  └── QueueScheduler @Scheduled (ZPOPMIN → entryTokenRepository.save)
-
-Phase 5. (Nice-To-Have) Polling 주기 동적 조절  ✅ 완료
-  └── QueuePosition.nextPollAfterMs 구간별 계산
+클라이언트                  QueueV1Controller     SseEmitterRegistry    QueueScheduler
+    │                              │                     │                   │
+    │  GET /position/stream         │                     │                   │
+    │ ─────────────────────────── > │                     │                   │
+    │                              │ getPosition()        │                   │
+    │                              │ ① 초기 "position" 전송                   │
+    │  event: position              │                     │                   │
+    │  data: {WAITING, pos=43, ...} │                     │                   │
+    │ < ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                     │                   │
+    │                              │ ② register(userId)   │                   │
+    │                              │ ──────────────────── >                   │
+    │  (연결 유지 중)                │                     │                   │
+    │                              │                      │  (매 1초 스케줄러) │
+    │                              │                      │  ZPOPMIN N명      │
+    │                              │                      │  토큰 발급        │
+    │                              │                      │  sendActive()     │
+    │                              │                      │                   │
+    │                              │  ③ 남은 WAITING 유저들에게 sendPosition() │
+    │                              │                      │  getPosition()    │
+    │  event: position              │                      │  per userId       │
+    │  data: {WAITING, pos=42, ...} │                      │                   │
+    │ < ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                      │                   │
+    │  (nextPushAtMs에 따라 반복)    │                      │                   │
+    │                              │                      │                   │
+    │  event: active               │                      │  (내 차례 도달)    │
+    │  data: {ACTIVE, token=uuid}   │                      │  sendActive()     │
+    │ < ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                      │                   │
+    │  (연결 종료)                   │                      │                   │
+    │                              │                      │                   │
+    │  → POST /api/v1/orders        │                      │                   │
+    │    X-Queue-Token: uuid        │                      │                   │
 ```
+
+### 9-3. 상태별 SSE 응답 동작
+
+| 연결 시 상태 | 초기 이벤트 | 이후 동작 |
+|---|---|---|
+| `WAITING` | `position` 이벤트 (순번 정보) | 연결 유지 → 스케줄러 틱마다 `position` PUSH, 입장 가능 시 `active` PUSH 후 종료 |
+| `ACTIVE` | `position` 이벤트 (ACTIVE + token) | 즉시 연결 종료 |
+| `NOT_IN_QUEUE` | `position` 이벤트 (NOT_IN_QUEUE) | 즉시 연결 종료 |
+
+### 9-4. PUSH 주기 (순번 구간별 적응형)
+
+폴링의 `nextPollAfterMs`와 동일한 기준을 SSE PUSH 간격에 그대로 재사용한다.
+`SseEmitterRegistry`가 userId별 `nextPushAtMs`(다음 PUSH 허용 시각)을 관리하며,
+스케줄러가 매 틱 `sendPosition()`을 호출해도 시각이 되지 않은 유저는 스킵한다.
+
+| position | nextPollAfterMs | PUSH 빈도 |
+|---|---|---|
+| ≤ 50 | 1,000ms | 매 틱 (1초마다) |
+| ≤ 500 | 3,000ms | 3틱에 1번 |
+| ≤ 5,000 | 5,000ms | 5틱에 1번 |
+| 초과 | 10,000ms | 10틱에 1번 |
+
+### 9-5. 이벤트 포맷
+
+**"position" 이벤트** (연결 즉시 + 스케줄러 틱마다)
+```
+event: position
+data: {"status":"WAITING","position":43,"waitingCount":150,"nextPollAfterMs":3000,"estimatedWaitSeconds":2,"entryToken":null}
+```
+
+**"active" 이벤트** (스케줄러가 토큰 발급 후 PUSH, 이후 연결 종료)
+```
+event: active
+data: {"status":"ACTIVE","entryToken":"550e8400-e29b-41d4-a716-446655440000"}
+```
+
+### 9-6. 컴포넌트 설계
+
+```java
+// SseEmitterRegistry (application/queue)
+ConcurrentHashMap<Long, SseEmitter>  emitters      // userId → HTTP 커넥션 핸들
+ConcurrentHashMap<Long, AtomicLong>  nextPushAtMs  // userId → 다음 PUSH 허용 시각(ms)
+
+register(userId, emitter)         // 컨트롤러가 WAITING 시 등록, 종료 콜백으로 자동 cleanup
+getRegisteredUserIds()            // 스케줄러가 순회할 대상 스냅샷 반환
+sendPosition(userId, position)    // nextPushAtMs 체크 후 "position" 이벤트 전송
+sendActive(userId, token)         // "active" 이벤트 전송 + complete (연결 종료)
+```
+
+```java
+// QueueScheduler — 매 틱 실행 순서
+1. popOldest(batchSize)           // 대기열 앞에서 N명 꺼냄
+2. 각 userId: jitter → 토큰 발급 → sendActive()   // ACTIVE 유저 처리, registry에서 제거됨
+3. getRegisteredUserIds() 순회    // 남은 WAITING SSE 연결자
+   → getPosition(userId)          // Redis에서 현재 순번 조회
+   → sendPosition(userId, pos)    // nextPushAtMs 기준으로 전송 or 스킵
+```
+
+### 9-7. 타임아웃과 재연결
+
+SSE 연결은 60초 후 타임아웃된다. 75명/초 처리 기준으로 position 4,500 이내인 유저는 60초 내에 ACTIVE를 받는다. 그 이상 대기가 필요한 유저는 재연결해야 하며, 재연결 시 초기 `position` 이벤트로 현재 순번을 다시 받는다.
+
+### 9-8. 단일 인스턴스 한계
+
+`SseEmitterRegistry`가 인메모리(`ConcurrentHashMap`)이므로 멀티 인스턴스 환경에서는 emitter가 등록된 인스턴스와 스케줄러가 실행되는 인스턴스가 다르면 PUSH가 도달하지 않는다.
+
+**해결 방향**:
+1. 스케줄러 단일 실행 보장 (ShedLock 등으로 한 인스턴스만 스케줄러 실행)
+2. 스케줄러가 토큰 발급/순번 갱신 후 Redis Pub/Sub 채널에 발행
+3. 모든 인스턴스가 채널을 구독하다가 자신의 registry에 해당 userId가 있으면 PUSH

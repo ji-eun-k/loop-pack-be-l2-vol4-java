@@ -7,7 +7,9 @@ import com.loopers.domain.user.User;
 import com.loopers.interfaces.api.ApiResponse;
 import com.loopers.interfaces.api.LoginUser;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RequiredArgsConstructor
 @RestController
@@ -26,5 +28,10 @@ public class QueueV1Controller {
     public ApiResponse<QueueV1Dto.PositionResponse> getPosition(@LoginUser User user) {
         QueuePosition result = queueService.getPosition(user.getId());
         return ApiResponse.success(QueueV1Dto.PositionResponse.from(result));
+    }
+
+    @GetMapping(value = "/position/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamPosition(@LoginUser User user) {
+        return queueService.streamPosition(user.getId());
     }
 }
