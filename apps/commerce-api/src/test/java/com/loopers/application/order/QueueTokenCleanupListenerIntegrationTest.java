@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -21,6 +22,7 @@ class QueueTokenCleanupListenerIntegrationTest {
 
     @Autowired private ApplicationEventPublisher eventPublisher;
     @Autowired private EntryTokenRepository entryTokenRepository;
+    @Autowired private TransactionTemplate transactionTemplate;
     @Autowired private RedisCleanUp redisCleanUp;
 
     @AfterEach
@@ -32,18 +34,37 @@ class QueueTokenCleanupListenerIntegrationTest {
     @Nested
     class Handle {
 
-        @DisplayName("해당 유저의 입장 토큰이 삭제된다.")
+        @DisplayName("트랜잭션이 커밋되면 해당 유저의 입장 토큰이 삭제된다.")
         @Test
-        void deletesToken_whenOrderCompleted() {
+        void deletesToken_whenTransactionCommits() {
             // arrange
             Long userId = 1L;
             entryTokenRepository.save(userId, "test-token", 300);
 
             // act
-            eventPublisher.publishEvent(new OrderCompletedEvent(userId));
+            transactionTemplate.executeWithoutResult(status ->
+                    eventPublisher.publishEvent(new OrderCompletedEvent(userId))
+            );
 
             // assert
             assertThat(entryTokenRepository.find(userId)).isEmpty();
+        }
+
+        @DisplayName("트랜잭션이 롤백되면 입장 토큰이 삭제되지 않는다.")
+        @Test
+        void keepsToken_whenTransactionRollsBack() {
+            // arrange
+            Long userId = 1L;
+            entryTokenRepository.save(userId, "test-token", 300);
+
+            // act
+            transactionTemplate.executeWithoutResult(status -> {
+                eventPublisher.publishEvent(new OrderCompletedEvent(userId));
+                status.setRollbackOnly();
+            });
+
+            // assert
+            assertThat(entryTokenRepository.find(userId)).isPresent();
         }
 
         @DisplayName("토큰이 없는 유저여도 예외가 발생하지 않는다.")
@@ -51,7 +72,9 @@ class QueueTokenCleanupListenerIntegrationTest {
         void doesNotThrow_whenTokenDoesNotExist() {
             // act & assert
             assertThatNoException().isThrownBy(() ->
-                    eventPublisher.publishEvent(new OrderCompletedEvent(999L))
+                    transactionTemplate.executeWithoutResult(status ->
+                            eventPublisher.publishEvent(new OrderCompletedEvent(999L))
+                    )
             );
         }
     }

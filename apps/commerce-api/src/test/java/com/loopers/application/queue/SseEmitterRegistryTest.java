@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +79,26 @@ class SseEmitterRegistryTest {
 
             // assert
             verify(mockEmitter).send(any(SseEmitter.SseEventBuilder.class));
+        }
+
+        @DisplayName("재연결 후 이전 emitter의 종료 콜백이 늦게 실행되어도, 새 연결은 PUSH를 받는다.")
+        @Test
+        void sendsToNewEmitter_whenStaleEmitterCleanedUpAfterReconnect() throws Exception {
+            // arrange - 최초 연결 후 재연결로 emitter가 교체된 상태
+            SseEmitter oldEmitter = mock(SseEmitter.class);
+            SseEmitter newEmitter = mock(SseEmitter.class);
+            ArgumentCaptor<Runnable> completionCaptor = ArgumentCaptor.forClass(Runnable.class);
+            registry.register(1L, oldEmitter);
+            verify(oldEmitter).onCompletion(completionCaptor.capture());
+            registry.register(1L, newEmitter);
+
+            // act - 이전 emitter의 종료 콜백이 뒤늦게 도착한 뒤 순번 PUSH
+            completionCaptor.getValue().run();
+            QueuePosition position = new QueuePosition(QueueStatus.WAITING, 30, 100, 1_000, 1, null);
+            registry.sendPosition(1L, position);
+
+            // assert
+            verify(newEmitter).send(any(SseEmitter.SseEventBuilder.class));
         }
 
         @DisplayName("nextPollAfterMs 이내에 재호출하면 전송을 스킵한다.")

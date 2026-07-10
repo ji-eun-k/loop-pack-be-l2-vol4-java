@@ -1,5 +1,6 @@
 package com.loopers.application.order;
 
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.infrastructure.brand.BrandEntity;
 import com.loopers.infrastructure.brand.BrandJpaRepository;
 import com.loopers.infrastructure.order.OrderItemJpaRepository;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.math.BigDecimal;
@@ -29,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 
 @SpringBootTest
@@ -60,6 +63,9 @@ class OrderFacadeIntegrationTest {
 
     @MockitoSpyBean
     private OutboxRepositoryImpl outboxRepositoryImpl;
+
+    @MockitoBean
+    private EntryTokenRepository entryTokenRepository;
 
     @Autowired
     private DatabaseCleanUp databaseCleanUp;
@@ -184,6 +190,30 @@ class OrderFacadeIntegrationTest {
 
             assertThrows(RuntimeException.class, () -> orderFacade.createOrder(command));
             assertThat(outboxJpaRepository.count()).isZero();
+        }
+
+        @DisplayName("입장 토큰 삭제(Redis)가 실패해도, 주문은 정상적으로 커밋된다.")
+        @Test
+        void commitsOrder_whenEntryTokenDeleteFails() {
+            BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
+            ProductEntity product = productJpaRepository.save(
+                new ProductEntity(brand.getId(), "청바지", BigDecimal.valueOf(50000)));
+            productStockJpaRepository.save(new ProductStockEntity(product.getId(), 10L));
+
+            doThrow(new RuntimeException("Redis 장애")).when(entryTokenRepository).delete(anyLong());
+
+            OrderCommand.Create command = new OrderCommand.Create(1L, null, List.of(
+                new OrderCommand.Create.Item(product.getId(), 3)
+            ));
+
+            // AFTER_COMMIT 리스너의 예외는 호출자에게 전파되지만, 트랜잭션은 이미 커밋된 상태다.
+            assertThrows(RuntimeException.class, () -> orderFacade.createOrder(command));
+
+            ProductStockEntity stock = productStockJpaRepository.findByProductId(product.getId()).orElseThrow();
+            assertAll(
+                () -> assertThat(orderJpaRepository.count()).isEqualTo(1),
+                () -> assertThat(stock.getQuantity()).isEqualTo(7L)
+            );
         }
 
         @DisplayName("여러 상품 중 하나라도 재고가 부족하면, 모든 재고 차감이 롤백된다.")

@@ -40,8 +40,10 @@ public class SseEmitterRegistry {
     }
 
     private void cleanup(Long userId, SseEmitter emitter) {
-        emitters.remove(userId, emitter);
-        nextPushAtMs.remove(userId);
+        // 재연결로 이미 새 emitter로 교체된 경우, 새 연결의 PUSH 스로틀 상태를 지우면 안 된다
+        if (emitters.remove(userId, emitter)) {
+            nextPushAtMs.remove(userId);
+        }
     }
 
     /**
