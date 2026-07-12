@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -50,7 +50,7 @@ class PaymentV1ApiE2ETest {
     private static final String LOGIN_ID = "paymentuser";
     private static final String LOGIN_PW = "pAssWord1!";
 
-    @MockBean
+    @MockitoBean
     private PgFeignClient pgFeignClient;
 
     @Autowired private TestRestTemplate testRestTemplate;

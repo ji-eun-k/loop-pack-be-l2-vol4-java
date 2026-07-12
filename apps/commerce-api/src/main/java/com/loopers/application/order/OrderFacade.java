@@ -52,6 +52,7 @@ public class OrderFacade {
         }
 
         Order order = orderService.createOrder(command.userId(), command.issuedCouponId(), originalPrice, discountAmount, items);
+        eventPublisher.publishEvent(new OrderCompletedEvent(command.userId()));
         return OrderInfo.Create.from(order);
     }
 
