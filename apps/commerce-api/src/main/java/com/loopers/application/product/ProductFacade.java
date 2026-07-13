@@ -6,12 +6,16 @@ import com.loopers.application.event.UserActionType;
 import com.loopers.domain.product.Product;
 import com.loopers.domain.product.ProductSort;
 import com.loopers.domain.product.ProductStock;
+import com.loopers.domain.ranking.RankingRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.LocalDate;
 
 @RequiredArgsConstructor
 @Component
@@ -20,12 +24,21 @@ public class ProductFacade {
     private final ProductService productService;
     private final BrandService brandService;
     private final ApplicationEventPublisher eventPublisher;
+    private final RankingRepository rankingRepository;
+    private final Clock clock;
 
     public ProductInfo getProductWithStock(Long id) {
         Product product = productService.getProduct(id);
         ProductStock stock = productService.getProductStock(id);
         eventPublisher.publishEvent(new UserActionEvent(UserActionType.PRODUCT_VIEWED, null, id));
         return ProductInfo.from(product, stock);
+    }
+
+    public ProductDetailInfo getProductDetail(Long id) {
+        Product product = productService.getProduct(id);
+        eventPublisher.publishEvent(new UserActionEvent(UserActionType.PRODUCT_VIEWED, null, id));
+        Long rank = rankingRepository.findRank(LocalDate.now(clock), id).orElse(null);
+        return ProductDetailInfo.of(product, rank);
     }
 
 

@@ -7,7 +7,10 @@ import com.loopers.infrastructure.product.ProductJpaRepository;
 import com.loopers.infrastructure.product.ProductStockEntity;
 import com.loopers.infrastructure.product.ProductStockJpaRepository;
 import com.loopers.interfaces.api.product.ProductV1Dto;
+import com.loopers.support.ranking.RankingKeys;
+import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
+import com.loopers.utils.RedisCleanUp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -15,18 +18,23 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RedisTestContainersConfig.class)
 class ProductV1ApiE2ETest {
 
     private static final String BASE_URL = "/api/v1/products";
@@ -46,9 +54,19 @@ class ProductV1ApiE2ETest {
     @Autowired
     private DatabaseCleanUp databaseCleanUp;
 
+    @Autowired
+    private RedisCleanUp redisCleanUp;
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    @Autowired
+    private Clock clock;
+
     @AfterEach
     void tearDown() {
         databaseCleanUp.truncateAllTables();
+        redisCleanUp.truncateAll();
     }
 
     private ProductEntity saveProduct(Long brandId, String name, BigDecimal price) {
@@ -67,7 +85,7 @@ class ProductV1ApiE2ETest {
             BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
             ProductEntity product = saveProduct(brand.getId(), "티셔츠", BigDecimal.valueOf(29000));
 
-            ResponseEntity<ApiResponse<ProductV1Dto.ProductResponse>> response = testRestTemplate.exchange(
+            ResponseEntity<ApiResponse<ProductV1Dto.ProductDetailResponse>> response = testRestTemplate.exchange(
                 BASE_URL + "/" + product.getId(),
                 HttpMethod.GET, new HttpEntity<>(null),
                 new ParameterizedTypeReference<>() {}
@@ -81,10 +99,50 @@ class ProductV1ApiE2ETest {
             );
         }
 
+        @DisplayName("오늘 랭킹에 있는 상품이면, 순위(rank)를 포함해 반환한다.")
+        @Test
+        void returnsRank_whenProductIsRankedToday() {
+            BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
+            ProductEntity first = saveProduct(brand.getId(), "1위상품", BigDecimal.valueOf(29000));
+            ProductEntity second = saveProduct(brand.getId(), "2위상품", BigDecimal.valueOf(19000));
+            String todayKey = RankingKeys.daily(LocalDate.now(clock));
+            redisTemplate.opsForZSet().add(todayKey, first.getId().toString(), 80.0);
+            redisTemplate.opsForZSet().add(todayKey, second.getId().toString(), 40.0);
+
+            ResponseEntity<ApiResponse<ProductV1Dto.ProductDetailResponse>> response = testRestTemplate.exchange(
+                BASE_URL + "/" + second.getId(),
+                HttpMethod.GET, new HttpEntity<>(null),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertAll(
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
+                () -> assertThat(response.getBody().data().rank()).isEqualTo(2L)
+            );
+        }
+
+        @DisplayName("오늘 랭킹에 없는 상품이면, rank는 null이다.")
+        @Test
+        void returnsNullRank_whenProductIsNotRanked() {
+            BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
+            ProductEntity product = saveProduct(brand.getId(), "순위권밖", BigDecimal.valueOf(29000));
+
+            ResponseEntity<ApiResponse<ProductV1Dto.ProductDetailResponse>> response = testRestTemplate.exchange(
+                BASE_URL + "/" + product.getId(),
+                HttpMethod.GET, new HttpEntity<>(null),
+                new ParameterizedTypeReference<>() {}
+            );
+
+            assertAll(
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
+                () -> assertThat(response.getBody().data().rank()).isNull()
+            );
+        }
+
         @DisplayName("존재하지 않는 상품 ID를 주면, 404 응답을 반환한다.")
         @Test
         void returnsNotFound_whenProductDoesNotExist() {
-            ResponseEntity<ApiResponse<ProductV1Dto.ProductResponse>> response = testRestTemplate.exchange(
+            ResponseEntity<ApiResponse<ProductV1Dto.ProductDetailResponse>> response = testRestTemplate.exchange(
                 BASE_URL + "/9999",
                 HttpMethod.GET, new HttpEntity<>(null),
                 new ParameterizedTypeReference<>() {}

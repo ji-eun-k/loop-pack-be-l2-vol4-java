@@ -1,5 +1,7 @@
 package com.loopers.interfaces.api;
 
+import com.loopers.application.user.UserService;
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.infrastructure.brand.BrandEntity;
 import com.loopers.infrastructure.brand.BrandJpaRepository;
 import com.loopers.infrastructure.product.ProductEntity;
@@ -9,7 +11,9 @@ import com.loopers.infrastructure.product.ProductStockJpaRepository;
 import com.loopers.interfaces.api.order.OrderAdminV1Dto;
 import com.loopers.interfaces.api.order.OrderV1Dto;
 import com.loopers.interfaces.api.user.UserV1Dto;
+import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
+import com.loopers.utils.RedisCleanUp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RedisTestContainersConfig.class)
 class OrderAdminV1ApiE2ETest {
 
     private static final String ADMIN_ORDERS_URL = "/api-admin/v1/orders";
@@ -42,14 +48,19 @@ class OrderAdminV1ApiE2ETest {
 
     private static final String LOGIN_ID = "adminorderuser";
     private static final String LOGIN_PW = "pAssWord1!";
+    private static final String QUEUE_TOKEN = "test-queue-token";
 
     @Autowired private TestRestTemplate testRestTemplate;
     @Autowired private BrandJpaRepository brandJpaRepository;
     @Autowired private ProductJpaRepository productJpaRepository;
     @Autowired private ProductStockJpaRepository productStockJpaRepository;
     @Autowired private DatabaseCleanUp databaseCleanUp;
+    @Autowired private RedisCleanUp redisCleanUp;
+    @Autowired private EntryTokenRepository entryTokenRepository;
+    @Autowired private UserService userService;
 
     private Long productId;
+    private Long userId;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +70,8 @@ class OrderAdminV1ApiE2ETest {
             new ParameterizedTypeReference<ApiResponse<UserV1Dto.UserResponse>>() {}
         );
 
+        userId = userService.getUser(LOGIN_ID, LOGIN_PW).getId();
+
         BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
         ProductEntity product = productJpaRepository.save(new ProductEntity(brand.getId(), "청바지", BigDecimal.valueOf(50000)));
         productStockJpaRepository.save(new ProductStockEntity(product.getId(), 10L));
@@ -67,6 +80,7 @@ class OrderAdminV1ApiE2ETest {
 
     @AfterEach
     void tearDown() {
+        redisCleanUp.truncateAll();
         databaseCleanUp.truncateAllTables();
     }
 
@@ -80,10 +94,13 @@ class OrderAdminV1ApiE2ETest {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Loopers-LoginId", LOGIN_ID);
         headers.set("X-Loopers-LoginPw", LOGIN_PW);
+        headers.set("X-Queue-Token", QUEUE_TOKEN);
         return headers;
     }
 
     private Long createOrder() {
+        // 주문 성공 시 QueueTokenCleanupListener가 입장 토큰을 삭제하므로, 주문마다 토큰을 재발급한다.
+        entryTokenRepository.save(userId, QUEUE_TOKEN, 300);
         OrderV1Dto.OrderCreateRequest request = new OrderV1Dto.OrderCreateRequest(
             List.of(new OrderV1Dto.OrderCreateRequest.Item(productId, 2)), null
         );

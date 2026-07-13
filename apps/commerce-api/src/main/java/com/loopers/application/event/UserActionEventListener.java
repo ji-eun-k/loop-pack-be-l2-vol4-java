@@ -15,8 +15,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -31,6 +35,7 @@ public class UserActionEventListener {
     private final OutboxService outboxService;
     private final KafkaTemplate<Object, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -53,7 +58,11 @@ public class UserActionEventListener {
             return;
         }
         try {
-            String payload = objectMapper.writeValueAsString(Map.of("productId", event.resourceId()));
+            String payload = objectMapper.writeValueAsString(Map.of(
+                "eventId", UUID.randomUUID().toString(),
+                "occurredAt", ZonedDateTime.now(clock).toString(),
+                "productId", event.resourceId()
+            ));
             // partition key = null (round-robin) — view_count는 순서 무관한 누적 연산이므로 균등 분산 우선
             // topic 분리 이유:
             //   - 볼륨: 조회 이벤트는 주문/좋아요 대비 압도적으로 많아 같은 토픽에 넣으면 consumer 처리 병목
@@ -78,10 +87,17 @@ public class UserActionEventListener {
         List<OrderItem> items = orderService.getOrderItems(orderId);
         Map<Long, Integer> productQtyMap = items.stream()
             .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+        // 랭킹 주문 점수(가중치 × log10(1 + price×qty)) 계산용 — streamer가 소비
+        Map<Long, BigDecimal> productAmountMap = items.stream()
+            .collect(Collectors.toMap(
+                OrderItem::getProductId,
+                item -> item.getProductPrice().multiply(BigDecimal.valueOf(item.getQuantity()))
+            ));
 
         String payload = objectMapper.writeValueAsString(Map.of(
             "orderId", orderId,
-            "productQtyMap", productQtyMap
+            "productQtyMap", productQtyMap,
+            "productAmountMap", productAmountMap
         ));
 
         return new OutboxEvent("OrderItemSoldEvent", payload, TOPIC, orderId.toString());

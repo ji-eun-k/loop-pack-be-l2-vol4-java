@@ -1,8 +1,8 @@
 package com.loopers.interfaces.api.product;
 
+import com.loopers.application.product.ProductDetailInfo;
 import com.loopers.application.product.ProductFacade;
 import com.loopers.application.product.ProductInfo;
-import com.loopers.application.product.ProductService;
 import com.loopers.domain.product.ProductSort;
 import com.loopers.interfaces.api.ApiResponse;
 import com.loopers.support.error.CoreException;
@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProductV1Controller {
 
     private final ProductFacade productFacade;
-    private final ProductService productService;
 
     @GetMapping
     public ApiResponse<Page<ProductV1Dto.ProductResponse>> getProducts(
@@ -39,10 +38,10 @@ public class ProductV1Controller {
     }
 
     @GetMapping("/{productId}")
-    public ApiResponse<ProductV1Dto.ProductResponse> getProduct(
+    public ApiResponse<ProductV1Dto.ProductDetailResponse> getProduct(
         @PathVariable Long productId
     ) {
-        ProductInfo info = ProductInfo.from(productService.getProduct(productId));
-        return ApiResponse.success(ProductV1Dto.ProductResponse.from(info));
+        ProductDetailInfo info = productFacade.getProductDetail(productId);
+        return ApiResponse.success(ProductV1Dto.ProductDetailResponse.from(info));
     }
 }

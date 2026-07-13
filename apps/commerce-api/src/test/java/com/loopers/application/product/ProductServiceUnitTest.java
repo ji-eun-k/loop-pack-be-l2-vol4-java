@@ -107,6 +107,14 @@ class ProductServiceUnitTest {
         }
 
         @Override
+        public List<Product> findAllByIds(List<Long> ids) {
+            return ids.stream()
+                .map(store::get)
+                .filter(p -> p != null && p.getDeletedAt() == null)
+                .toList();
+        }
+
+        @Override
         public Page<Product> findAll(Long brandId, Pageable pageable) {
             List<Product> active = store.values().stream()
                 .filter(p -> p.getDeletedAt() == null)
