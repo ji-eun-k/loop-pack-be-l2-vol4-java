@@ -183,6 +183,30 @@ class RankingV1ApiE2ETest {
             );
         }
 
+        @DisplayName("오늘 랭킹이 새로 생성되어도 날짜를 지정하면 이전 날짜 랭킹을 반환한다.")
+        @Test
+        void returnsPreviousDateRanking_afterDateChanges() {
+            LocalDate today = LocalDate.now(clock);
+            LocalDate yesterday = today.minusDays(1);
+            BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
+            ProductEntity yesterdayProduct = saveProduct(brand.getId(), "어제상품", BigDecimal.valueOf(10_000));
+            ProductEntity todayProduct = saveProduct(brand.getId(), "오늘상품", BigDecimal.valueOf(20_000));
+            addScore(yesterday, yesterdayProduct.getId(), 30.0);
+            addScore(today, todayProduct.getId(), 50.0);
+
+            ResponseEntity<ApiResponse<RankingV1Dto.RankingPageResponse>> response =
+                get(BASE_URL + "?date=" + yesterday.format(DATE_FORMATTER));
+
+            RankingV1Dto.RankingPageResponse data = response.getBody().data();
+            assertAll(
+                () -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK),
+                () -> assertThat(data.date()).isEqualTo(yesterday.format(DATE_FORMATTER)),
+                () -> assertThat(data.items()).hasSize(1),
+                () -> assertThat(data.items().getFirst().productId()).isEqualTo(yesterdayProduct.getId()),
+                () -> assertThat(data.items().getFirst().name()).isEqualTo("어제상품")
+            );
+        }
+
         @DisplayName("랭킹 데이터가 없는 날짜면, 빈 페이지를 반환한다.")
         @Test
         void returnsEmptyPage_whenDateHasNoRanking() {

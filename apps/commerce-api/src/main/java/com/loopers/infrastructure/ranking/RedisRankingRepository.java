@@ -6,6 +6,7 @@ import com.loopers.support.ranking.RankingKeys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -15,6 +16,7 @@ import java.util.Set;
 
 @Repository
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "ranking.repository", havingValue = "redis", matchIfMissing = true)
 public class RedisRankingRepository implements RankingRepository {
 
     private final RedisTemplate<String, String> redisTemplate;

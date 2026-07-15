@@ -68,6 +68,57 @@ class RankingConsumerIntegrationTest {
     @Nested
     class CatalogEvents {
 
+        @DisplayName("이벤트 발생일이 어제이면 어제 날짜 ZSET에 점수가 반영된다.")
+        @Test
+        void appliesScoreToOccurredDate_whenEventOccurredYesterday() throws Exception {
+            LocalDate yesterday = LocalDate.now(clock).minusDays(1);
+            String eventId = UUID.randomUUID().toString();
+
+            sendWithHeaders(
+                "ProductLikedEvent",
+                eventId,
+                "{\"productId\":7010}",
+                yesterday + "T23:59:59+09:00"
+            );
+
+            String yesterdayKey = RankingKeys.daily(yesterday);
+            await().atMost(30, SECONDS).until(() ->
+                redisTemplate.opsForZSet().score(yesterdayKey, "7010") != null
+            );
+
+            assertThat(redisTemplate.opsForZSet().score(yesterdayKey, "7010"))
+                .isCloseTo(0.2, within(1e-9));
+            assertThat(score(7010L)).isNull();
+        }
+
+        @DisplayName("주문 1건의 가중치가 좋아요 3건보다 높아 실제 ZSET 순위가 앞선다.")
+        @Test
+        void ranksOneOrderAheadOfThreeLikes() throws Exception {
+            long orderedProductId = 7011L;
+            long likedProductId = 7012L;
+
+            sendWithHeaders(
+                "OrderItemSoldEvent",
+                UUID.randomUUID().toString(),
+                "{\"orderId\":1,\"productQtyMap\":{\"7011\":1},\"productAmountMap\":{\"7011\":1000}}"
+            );
+            for (int i = 0; i < 3; i++) {
+                sendWithHeaders(
+                    "ProductLikedEvent",
+                    UUID.randomUUID().toString(),
+                    "{\"productId\":7012}"
+                );
+            }
+
+            await().atMost(30, SECONDS).until(() ->
+                score(orderedProductId) != null && score(likedProductId) != null
+            );
+
+            assertThat(score(orderedProductId)).isGreaterThan(score(likedProductId));
+            assertThat(redisTemplate.opsForZSet().reverseRank(todayKey(), Long.toString(orderedProductId)))
+                .isLessThan(redisTemplate.opsForZSet().reverseRank(todayKey(), Long.toString(likedProductId)));
+        }
+
         @DisplayName("OrderItemSoldEvent의 productAmountMap 기준 주문 점수가 반영된다.")
         @Test
         void appliesOrderScore_whenOrderItemSoldEventReceived() throws Exception {
@@ -131,9 +182,16 @@ class RankingConsumerIntegrationTest {
     }
 
     private void sendWithHeaders(String eventType, String eventId, String payload) throws Exception {
+        sendWithHeaders(eventType, eventId, payload, null);
+    }
+
+    private void sendWithHeaders(String eventType, String eventId, String payload, String occurredAt) throws Exception {
         ProducerRecord<Object, Object> record = new ProducerRecord<>("catalog-events-v1", "1", payload);
         record.headers().add("X-Event-Type", eventType.getBytes(StandardCharsets.UTF_8));
         record.headers().add("X-Event-Id", eventId.getBytes(StandardCharsets.UTF_8));
+        if (occurredAt != null) {
+            record.headers().add("X-Event-Occurred-At", occurredAt.getBytes(StandardCharsets.UTF_8));
+        }
         kafkaTemplate.send(record).get();
     }
 }
