@@ -34,6 +34,15 @@ ranking:
     view: 0.1
     like: 0.2
     order: 0.6
+  carry-over:
+    weight: 0.05
+  recovery:
+    enabled: true
+    initial-delay: 30s
+    fixed-delay: 1m
+    batch-size: 1000
+    lock-ttl: 30m
+    marker-ttl: 2d
 
 ---
 spring:

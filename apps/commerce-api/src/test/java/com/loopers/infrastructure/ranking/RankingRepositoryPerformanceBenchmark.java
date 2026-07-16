@@ -53,6 +53,7 @@ class RankingRepositoryPerformanceBenchmark {
     @Autowired private DatabaseCleanUp databaseCleanUp;
     @Autowired private RedisCleanUp redisCleanUp;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private RankingTopSnapshotRepository snapshotRepository;
 
     private RdbRankingRepository rdb;
     private RedisRankingRepository redis;
@@ -60,7 +61,7 @@ class RankingRepositoryPerformanceBenchmark {
     @BeforeAll
     void setUp() {
         rdb = new RdbRankingRepository(jdbcTemplate);
-        redis = new RedisRankingRepository(redisTemplate);
+        redis = new RedisRankingRepository(redisTemplate, snapshotRepository);
         seedRdb();
         seedRedis();
     }

@@ -21,8 +21,16 @@ public class RankingCarryOverScheduler {
     @Scheduled(cron = "0 50 23 * * *", zone = "Asia/Seoul")
     public void carryOver() {
         try {
-            rankingUpdater.carryOverToNextDay();
-            log.info("[RANKING] 내일 랭킹 키 carry-over 완료");
+            long carried = rankingUpdater.carryOverToNextDay();
+            if (carried > 0) {
+                log.info("[RANKING] 내일 랭킹 전체 carry-over 완료 — count={}", carried);
+            } else if (carried == -1) {
+                log.info("[RANKING] 다른 파드가 carry-over 실행 중이므로 skip");
+            } else if (carried == -2) {
+                log.info("[RANKING] 내일 랭킹 키가 이미 존재하므로 carry-over skip");
+            } else {
+                log.info("[RANKING] 오늘 랭킹이 비어 있어 carry-over skip");
+            }
         } catch (Exception e) {
             // 실패해도 다음 날 랭킹이 빈 상태로 시작할 뿐, 이벤트 적립은 정상 동작한다.
             log.error("[RANKING] 내일 랭킹 키 carry-over 실패", e);

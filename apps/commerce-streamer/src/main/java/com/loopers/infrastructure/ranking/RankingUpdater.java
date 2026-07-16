@@ -3,8 +3,6 @@ package com.loopers.infrastructure.ranking;
 import com.loopers.domain.ranking.RankingEventScore;
 import com.loopers.support.ranking.RankingKeys;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.connection.zset.Aggregate;
-import org.springframework.data.redis.connection.zset.Weights;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -14,7 +12,6 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 배치 단위로 집계된 상품별 점수 델타를 오늘 날짜 랭킹 ZSET에 반영한다.
@@ -25,7 +22,25 @@ import java.util.Map;
 public class RankingUpdater {
 
     private static final Duration RANKING_TTL = Duration.ofDays(2);
-    private static final double CARRY_OVER_WEIGHT = 0.1;
+    private static final Duration CARRY_OVER_LOCK_TTL = Duration.ofDays(1);
+    private static final DefaultRedisScript<Long> CARRY_OVER_SCRIPT = new DefaultRedisScript<>("""
+        if redis.call('EXISTS', KEYS[2]) == 1 then
+            return -2
+        end
+        if not redis.call('SET', KEYS[3], ARGV[1], 'NX', 'EX', ARGV[2]) then
+            return -1
+        end
+        local entries = redis.call('ZRANGE', KEYS[1], 0, -1, 'WITHSCORES')
+        if #entries == 0 then
+            redis.call('DEL', KEYS[3])
+            return 0
+        end
+        for i = 1, #entries, 2 do
+            redis.call('ZADD', KEYS[2], tonumber(entries[i + 1]) * tonumber(ARGV[3]), entries[i])
+        end
+        redis.call('EXPIRE', KEYS[2], ARGV[4])
+        return #entries / 2
+        """, Long.class);
     private static final DefaultRedisScript<Long> APPLY_EVENTS_SCRIPT = new DefaultRedisScript<>("""
         local ttl = tonumber(ARGV[1])
         local index = 2
@@ -53,21 +68,7 @@ public class RankingUpdater {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final Clock clock;
-
-    public void applyDeltas(Map<Long, Double> deltas) {
-        applyDeltas(LocalDate.now(clock), deltas);
-    }
-
-    public void applyDeltas(LocalDate date, Map<Long, Double> deltas) {
-        if (deltas.isEmpty()) {
-            return;
-        }
-        String key = RankingKeys.daily(date);
-        deltas.forEach((productId, delta) ->
-            redisTemplate.opsForZSet().incrementScore(key, productId.toString(), delta)
-        );
-        redisTemplate.expire(key, RANKING_TTL);
-    }
+    private final RankingCarryOverProperties carryOverProperties;
 
     /**
      * 이벤트 ID 확인과 점수 증가를 하나의 Lua script로 실행한다.
@@ -105,15 +106,19 @@ public class RankingUpdater {
      * ZUNIONSTORE는 대상 키를 덮어쓰므로 재실행해도 오늘 점수 기준으로 재계산된다 (멱등).
      * 오늘 키가 없으면 결과가 빈 ZSET이라 Redis가 대상 키를 만들지 않는다.
      */
-    public void carryOverToNextDay() {
+    public long carryOverToNextDay() {
         LocalDate today = LocalDate.now(clock);
         String todayKey = RankingKeys.daily(today);
         String tomorrowKey = RankingKeys.daily(today.plusDays(1));
-        Long carried = redisTemplate.opsForZSet().unionAndStore(
-            todayKey, List.of(), tomorrowKey, Aggregate.SUM, Weights.of(CARRY_OVER_WEIGHT)
+        String lockKey = "ranking:carry-over:" + today;
+        Long carried = redisTemplate.execute(
+            CARRY_OVER_SCRIPT,
+            List.of(todayKey, tomorrowKey, lockKey),
+            java.util.UUID.randomUUID().toString(),
+            Long.toString(CARRY_OVER_LOCK_TTL.toSeconds()),
+            Double.toString(carryOverProperties.weight()),
+            Long.toString(RANKING_TTL.toSeconds())
         );
-        if (carried != null && carried > 0) {
-            redisTemplate.expire(tomorrowKey, RANKING_TTL);
-        }
+        return carried == null ? 0L : carried;
     }
 }

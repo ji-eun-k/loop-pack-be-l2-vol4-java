@@ -27,12 +27,13 @@ commerce-api
 
 Kafka
   ├─ catalog-events-v1
-  └─ catalog-view-events-v1
+  ├─ catalog-view-events-v1
+  └─ catalog-event-ledger-v1
 
 commerce-streamer
-  ├─ product_metrics 갱신
-  ├─ 이벤트 발생일별 랭킹 이벤트 분류
-  └─ Redis Lua 실행
+  ├─ 원본 이벤트를 catalog_event_ledger에 저장
+  ├─ CDC 토픽의 metrics projector → product_metrics 갱신
+  └─ CDC 토픽의 ranking projector → Redis Lua 실행
        ├─ ranking:handled:{yyyyMMdd} 중복 확인
        └─ ranking:all:{yyyyMMdd} 점수 누적
 
@@ -156,7 +157,7 @@ payload 예시:
 
 ## 6. Kafka 배치 소비
 
-두 컨슈머 모두 `KafkaConfig.BATCH_LISTENER`를 사용한다.
+원장 컨슈머와 두 CDC projector 모두 `KafkaConfig.BATCH_LISTENER`를 사용한다.
 
 ```text
 max.poll.records = 3000
@@ -164,40 +165,37 @@ ack mode         = MANUAL
 concurrency      = 3
 ```
 
-### 6.1 주문·좋아요 컨슈머
+### 6.1 원장 및 product_metrics projector
 
-`CatalogMetricsConsumer`는 `catalog-events-v1`을 소비한다.
-
-처리 순서는 다음과 같다.
-
-```text
-1. Kafka header와 payload 파싱
-2. event_handled로 DB 처리 여부 확인
-3. 미처리 이벤트이면 product_metrics 갱신 및 event_handled 저장
-4. 처리 여부와 무관하게 랭킹 점수 델타 계산
-5. X-Event-Occurred-At 기준으로 이벤트 날짜 결정
-6. 날짜별로 RankingEventScore 목록 구성
-7. 날짜별 Redis Lua 실행
-8. 모든 Redis 반영이 성공한 후 Kafka offset ack
-```
-
-배치에 여러 날짜의 이벤트가 섞여 있으면 날짜별로 나눠 각각의 일간 ZSET에 반영한다.
-
-### 6.2 조회 컨슈머
-
-`CatalogViewConsumer`는 `catalog-view-events-v1`을 소비한다.
+`CatalogEventLedgerConsumer`가 원본 토픽을 원장에 저장하고, `CatalogMetricsProjectorConsumer`가 `catalog-event-ledger-v1`을 소비한다.
 
 처리 순서는 다음과 같다.
 
 ```text
-1. payload에서 eventId, occurredAt, productId 파싱
-2. product_metrics.view_count 증가
-3. 이벤트 발생일별 RankingEventScore 목록 구성
-4. 날짜별 Redis Lua 실행
-5. Redis 반영 성공 후 Kafka offset ack
+1. 원본 Kafka header와 payload를 원장 모델로 정규화
+2. catalog_event_ledger 저장 후 원본 offset ack
+3. Debezium이 catalog-event-ledger-v1 발행
+4. metrics projector가 event_handled로 DB 처리 여부 확인
+5. 미처리 이벤트이면 product_metrics 갱신 및 event_handled 저장
+6. metrics projector offset ack
 ```
 
-조회 컨슈머 메서드는 DB 트랜잭션으로 실행된다. Redis 반영 예외가 발생하면 메서드 밖으로 예외가 전파되므로 ack가 호출되지 않고 DB 트랜잭션도 롤백된다.
+product_metrics와 Redis 랭킹은 서로 다른 consumer group에서 독립적으로 처리한다.
+
+### 6.2 랭킹 projector
+
+`CatalogRankingProjectorConsumer`는 `catalog-event-ledger-v1`을 소비한다.
+
+처리 순서는 다음과 같다.
+
+```text
+1. CDC 원장 row에서 eventId, eventType, occurredAt, payload 파싱
+2. 이벤트 발생일별 RankingEventScore 목록 구성
+3. 날짜별 Redis Lua 실행
+4. Redis 반영 성공 후 Kafka offset ack
+```
+
+Redis 반영 예외가 발생하면 ack가 호출되지 않아 ranking projector consumer group이 해당 CDC 이벤트를 재처리한다.
 
 ## 7. 이벤트 날짜 결정
 
@@ -337,23 +335,25 @@ TTL은 새로운 이벤트가 실제 적용된 경우 갱신된다. 동일 event
 commerce-streamer의 스케줄러는 매일 23시 50분에 실행된다.
 
 ```text
-오늘 ZSET 점수 × 0.1
+오늘 ZSET 전체 점수 × 0.05
 → 내일 ranking:all:{yyyyMMdd} 생성
 → 내일 키 TTL 2일 설정
 ```
 
-개념적인 Redis 연산:
+Lua script에서 원자적으로 실행하는 개념적인 Redis 연산:
 
 ```text
-ZUNIONSTORE ranking:all:{내일}
-  1 ranking:all:{오늘}
-  WEIGHTS 0.1
+SET ranking:carry-over:{오늘} token NX EX 86400
+ZRANGE ranking:all:{오늘} 0 -1 WITHSCORES
+ZADD ranking:all:{내일} score*0.05 productId
 ```
 
 특징:
 
 - 오늘 랭킹이 비어 있으면 내일 키를 생성하지 않는다.
-- 여러 번 실행해도 오늘 점수의 10%로 다시 계산되므로 결과가 누적되지 않는다.
+- 내일 키가 이미 있으면 실행하지 않는다.
+- 여러 파드가 동시에 스케줄을 실행해도 Redis `SET NX` 락을 획득한 한 파드만 처리한다.
+- 락 획득, 전체 랭킹 조회, 내일 키 생성과 TTL 설정은 하나의 Lua script로 실행된다.
 - 자정 직후 랭킹이 완전히 비어 있는 문제를 완화한다.
 - 자정 이후 발생한 실제 이벤트 점수는 carry-over 점수 위에 누적된다.
 
@@ -431,3 +431,19 @@ Redis ZREVRANK 결과 + 1 → API rank
 - 실행 중 가중치 동적 변경
 - 만료된 랭킹의 장기 보관
 - 삭제 상품을 Redis ZSET에서 자동 제거하는 정리 작업
+
+## 14. Redis 조회 장애 시 Top-N fallback
+
+- commerce-api는 오늘 랭킹의 Top 100을 기본 10분 간격으로 `ranking_top_snapshot`에 저장한다. 별도 활성화 플래그 없이 상시 동작한다.
+- 스냅샷 교체는 날짜 단위 DB 트랜잭션으로 실행된다.
+- Redis 연결 또는 시스템 예외가 발생하면 마지막 정상 스냅샷에서 목록, 단건 순위, 개수를 조회한다.
+- fallback은 저장된 Top-N 범위까지만 제공하며, Top-N 바깥 페이지나 상품은 빈 결과가 정상이다. fallback 중 totalCount는 스냅샷 보유 수(최대 Top-N)를 의미한다.
+- Redis 조회가 비어 있거나 스냅샷 갱신이 실패하면 기존 정상 스냅샷을 유지한다.
+- 운영 환경에서는 `docs/sql/ranking-top-snapshot.sql`을 먼저 적용해야 한다.
+
+```yaml
+ranking:
+  fallback-snapshot:
+    top-n: 100
+    interval-ms: 600000
+```
