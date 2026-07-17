@@ -13,6 +13,11 @@ import org.springframework.transaction.annotation.Propagation;
 
 import java.util.Map;
 
+/**
+ * CDC(변경 데이터 캡처)로 흘러온 카탈로그 이벤트를 product_metrics에 반영하는 프로젝터.
+ * REQUIRES_NEW로 별도 트랜잭션을 사용해, 호출부(Consumer)의 트랜잭션 상태와 무관하게
+ * 이벤트 하나 처리 실패가 다른 이벤트 처리에 영향을 주지 않도록 격리한다.
+ */
 @Slf4j
 @RequiredArgsConstructor
 @Component

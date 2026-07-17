@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 매일 23:50에 오늘 랭킹의 0.1배로 내일 키를 미리 생성한다.
+ * 매일 23:50에 오늘 랭킹의 설정된 비율(기본 0.05배)로 내일 키를 미리 생성한다.
  * 자정에 키가 전환되는 순간 랭킹이 텅 비는 콜드 스타트를 방지한다.
  * 자정(00:00)이 아닌 23:50에 도는 이유: 자정에는 이미 새 키가 조회 대상이라 빈 랭킹이 노출되는 공백이 생긴다.
  */

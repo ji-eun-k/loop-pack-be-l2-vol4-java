@@ -19,6 +19,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * catalog_event_ledger CDC 스트림을 구독해 실시간 랭킹 점수를 갱신하는 프로젝터.
+ * Redis 랭킹이 유실되는 경우 RankingRecoveryService가 같은 원장을 다시 읽어 복구한다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -36,6 +40,8 @@ public class CatalogRankingProjectorConsumer {
         containerFactory = KafkaConfig.BATCH_LISTENER
     )
     public void consume(List<ConsumerRecord<Object, Object>> records, Acknowledgment acknowledgment) {
+        // 배치 안에 여러 날짜의 이벤트가 섞일 수 있어(자정 전후 등) 날짜별로 묶어서
+        // RankingUpdater.applyEvents(date, ...)를 날짜당 한 번씩만 호출한다.
         Map<LocalDate, List<RankingEventScore>> eventsByDate = new HashMap<>();
         for (ConsumerRecord<Object, Object> record : records) {
             try {

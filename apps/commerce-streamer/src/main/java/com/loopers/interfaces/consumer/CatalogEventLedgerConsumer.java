@@ -24,6 +24,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 카탈로그 원본 이벤트(주문/좋아요/조회 등 서로 다른 토픽·포맷)를 공통 CatalogLedgerEvent 형태로
+ * 정규화해 원장 테이블에 적재하는 최초 진입점 컨슈머.
+ * 이후 product_metrics/랭킹 반영은 이 원장을 CDC로 구독하는 별도 컨슈머(CatalogMetricsProjectorConsumer,
+ * CatalogRankingProjectorConsumer)가 담당한다 — 즉 여기서는 저장만 하고 도메인 반영은 하지 않는다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -46,6 +52,7 @@ public class CatalogEventLedgerConsumer {
             try {
                 events.add(toLedgerEvent(record));
             } catch (RuntimeException exception) {
+                // 정규화 실패 건만 DLQ로 보내고, 나머지 정상 건은 배치에서 계속 처리한다.
                 log.warn("[CATALOG_LEDGER] 원본 이벤트 정규화 실패 — topic={}, partition={}, offset={}",
                     record.topic(), record.partition(), record.offset(), exception);
                 dlqPublisher.sendToDlq(record, exception);
@@ -64,6 +71,8 @@ public class CatalogEventLedgerConsumer {
             throw new IllegalArgumentException("catalog event payload must be JSON", exception);
         }
 
+        // 두 토픽의 포맷이 달라 분기한다: 뷰 이벤트는 값(JSON body)에 메타데이터가 있고,
+        // 나머지 카탈로그 이벤트는 Kafka 헤더(X-Event-*)에 메타데이터가 실려온다.
         boolean viewEvent = "catalog-view-events-v1".equals(record.topic());
         String eventId = eventResolver.eventId(
             viewEvent ? stringValue(body.get("eventId")) : header(record, "X-Event-Id"), record

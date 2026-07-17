@@ -23,6 +23,8 @@ public class RankingUpdater {
 
     private static final Duration RANKING_TTL = Duration.ofDays(2);
     private static final Duration CARRY_OVER_LOCK_TTL = Duration.ofDays(1);
+    // KEYS[1]=오늘 ZSET, KEYS[2]=내일 ZSET, KEYS[3]=중복 실행 방지 락.
+    // 반환값: 0 이상=carry-over한 항목 수, -1=다른 파드가 이미 락 선점, -2=내일 키가 이미 존재해 skip.
     private static final DefaultRedisScript<Long> CARRY_OVER_SCRIPT = new DefaultRedisScript<>("""
         if redis.call('EXISTS', KEYS[2]) == 1 then
             return -2
@@ -41,6 +43,9 @@ public class RankingUpdater {
         redis.call('EXPIRE', KEYS[2], ARGV[4])
         return #entries / 2
         """, Long.class);
+    // KEYS[1]=날짜별 랭킹 ZSET, KEYS[2]=처리된 eventId를 담는 SET(멱등 판단용).
+    // ARGV는 [ttl, eventId, itemCount, (productId, delta) * itemCount, ...] 형태로 이벤트를 평탄화해서 넘긴다.
+    // SADD가 0을 반환하면(이미 처리된 eventId) 해당 이벤트의 항목만 건너뛰고 다음 이벤트로 이동한다.
     private static final DefaultRedisScript<Long> APPLY_EVENTS_SCRIPT = new DefaultRedisScript<>("""
         local ttl = tonumber(ARGV[1])
         local index = 2
@@ -99,6 +104,15 @@ public class RankingUpdater {
             args.toArray()
         );
         return applied == null ? 0L : applied;
+    }
+
+    /**
+     * 원장 리플레이 전에 랭킹과 처리 이력을 함께 비운다.
+     * 둘 중 하나만 유실된 상태에서 리플레이하면 점수가 누락되거나 중복될 수 있으므로
+     * 동일 날짜의 두 키를 하나의 Redis 명령으로 삭제한다.
+     */
+    public void reset(LocalDate date) {
+        redisTemplate.delete(List.of(RankingKeys.daily(date), RankingKeys.handled(date)));
     }
 
     /**

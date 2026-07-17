@@ -70,15 +70,18 @@ curl -X POST http://localhost:8083/connectors \
 Redis가 재기동되거나 데이터가 유실되면 streamer가 오늘 날짜 원장을 PK 순서로 배치 조회해 랭킹을 자동 복구한다.
 
 ```text
-Redis recovery marker 없음
+복구 완료 마커와 랭킹/처리 이력 키 확인
+  → 세 키가 모두 정상이면 복구 종료
+  → 랭킹 또는 처리 이력 키가 유실됐으면 재복구
   → ranking:recovery:lock:{date} 분산 락 획득
+  → 불완전한 랭킹/처리 이력 키 함께 초기화
   → catalog_event_ledger 오늘 이벤트를 id 기준 keyset pagination 조회
   → 기존 점수 정책으로 변환
   → RankingUpdater.applyEvents()로 ZINCRBY
   → ranking:recovery:completed:{date} 완료 마커 저장
 ```
 
-실시간 CDC와 replay가 겹치더라도 `ranking:handled:{date}`의 event ID 멱등성 검사를 공유하므로 점수는 한 번만 반영된다. 여러 파드 중 하나만 복구하며, 중간에 Redis 오류가 나면 완료 마커를 남기지 않아 다음 스케줄에서 다시 시도한다.
+완료 마커가 남아 있어도 랭킹 또는 처리 이력 키가 유실되면 원장에서 다시 복구한다. 실시간 CDC와 replay가 겹치더라도 `ranking:handled:{date}`의 event ID 멱등성 검사를 공유하므로 점수는 한 번만 반영된다. 여러 파드 중 하나만 복구하며, 중간에 Redis 오류가 나면 완료 마커를 새로 남기지 않아 다음 스케줄에서 다시 시도한다.
 
 ```yaml
 ranking:

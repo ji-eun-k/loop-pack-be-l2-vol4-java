@@ -9,6 +9,11 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 
+/**
+ * Debezium 등 CDC 커넥터가 catalog_event_ledger 테이블 변경분을 발행한 Kafka 메시지를 파싱한다.
+ * CDC 페이로드는 대개 {"payload": {"after": {...row...}}} 형태로 감싸져 오지만, 커넥터/버전에 따라
+ * {"after": {...}}만 오거나 이미 row 자체가 오는 경우까지 방어적으로 처리한다.
+ */
 @Component
 @RequiredArgsConstructor
 public class CatalogLedgerCdcParser {
@@ -68,6 +73,8 @@ public class CatalogLedgerCdcParser {
         }
         if (node.isNumber()) {
             long value = node.asLong();
+            // Debezium은 컬럼 타입에 따라 밀리초/마이크로초 epoch를 혼용해 내려줄 수 있어
+            // 자릿수로 마이크로초 단위를 구분해 나노초로 변환한다.
             if (Math.abs(value) > 100_000_000_000_000L) {
                 return Instant.ofEpochSecond(0, value * 1_000L);
             }

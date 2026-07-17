@@ -9,6 +9,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import lombok.Getter;
 
+/**
+ * 쿠폰 발급 이벤트의 처리 이력/결과를 기록한다. eventId가 UNIQUE라 같은 이벤트가 재처리돼도
+ * CouponIssueProcessor가 기존 레코드를 찾아 결과만 갱신(멱등)한다.
+ */
 @Getter
 @Entity(name = "CouponIssueEvent")
 @Table(name = "coupon_issue_event")

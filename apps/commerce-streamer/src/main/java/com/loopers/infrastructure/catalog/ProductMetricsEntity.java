@@ -10,6 +10,10 @@ import lombok.Getter;
 
 import java.time.ZonedDateTime;
 
+/**
+ * 상품별 누적 지표(주문/좋아요/조회수). 실제 증감은 ProductMetricsJpaRepository의 upsert 쿼리로
+ * 이루어지며, 이 엔티티는 조회 용도로만 주로 사용된다.
+ */
 @Getter
 @Entity(name = "ProductMetrics")
 @Table(name = "product_metrics")

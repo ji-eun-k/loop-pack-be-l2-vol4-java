@@ -19,37 +19,49 @@ import java.util.stream.Collectors;
 @Component
 public class RankingFacade {
 
+    // 삭제된 상품으로 빠진 자리를 채우기 위해 추가로 조회할 페이지 수 상한.
+    // 삭제 빈도가 낮다는 전제(하루 수백 건 수준)라 한두 페이지면 충분하지만,
+    // 특정 날짜의 상품이 대거 삭제된 극단적인 경우에도 조회가 무한 반복되지 않도록 안전장치를 둔다.
+    private static final int MAX_BACKFILL_PAGES = 5;
+
     private final RankingRepository rankingRepository;
     private final ProductService productService;
     private final Clock clock;
 
     /**
      * 랭킹 페이지를 상품정보와 함께 조회한다.
+     * 순위권 내 상품이 삭제되어 제외되면, 요청한 size를 채울 때까지 다음 페이지를 추가로 조회해 보정한다.
      *
      * @param date 조회 날짜 (null이면 오늘)
      * @param page 0-based 페이지 번호
      */
     public RankingInfo getRankings(LocalDate date, int page, int size) {
         LocalDate targetDate = date != null ? date : LocalDate.now(clock);
-        List<RankingItem> rankingItems = rankingRepository.findPage(targetDate, page, size);
         long totalCount = rankingRepository.countTotal(targetDate);
-        if (rankingItems.isEmpty()) {
-            return new RankingInfo(targetDate, totalCount, List.of());
-        }
 
-        List<Long> productIds = rankingItems.stream().map(RankingItem::productId).toList();
-        Map<Long, Product> products = productService.getProductsByIds(productIds).stream()
-            .collect(Collectors.toMap(Product::getId, Function.identity()));
-
-        long offset = (long) page * size;
         List<RankingInfo.RankingProductInfo> items = new ArrayList<>();
-        for (int i = 0; i < rankingItems.size(); i++) {
-            RankingItem rankingItem = rankingItems.get(i);
-            Product product = products.get(rankingItem.productId());
-            if (product == null) {
-                continue; // 삭제된 상품은 제외 (순위는 ZSET 기준 유지)
+        int currentPage = page;
+        for (int fetched = 0; items.size() < size && fetched < MAX_BACKFILL_PAGES; fetched++) {
+            List<RankingItem> rankingItems = rankingRepository.findPage(targetDate, currentPage, size);
+            if (rankingItems.isEmpty()) {
+                break;
             }
-            items.add(RankingInfo.RankingProductInfo.of(offset + i + 1, product, rankingItem.score()));
+
+            List<Long> productIds = rankingItems.stream().map(RankingItem::productId).toList();
+            Map<Long, Product> products = productService.getProductsByIds(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+
+            // 랭킹 순위는 페이지 내 위치가 아니라 ZSET 전체 기준 절대 위치로 매긴다.
+            long offset = (long) currentPage * size;
+            for (int i = 0; i < rankingItems.size() && items.size() < size; i++) {
+                RankingItem rankingItem = rankingItems.get(i);
+                Product product = products.get(rankingItem.productId());
+                if (product == null) {
+                    continue; // 삭제된 상품은 제외 (순위는 ZSET 기준 유지)
+                }
+                items.add(RankingInfo.RankingProductInfo.of(offset + i + 1, product, rankingItem.score()));
+            }
+            currentPage++;
         }
         return new RankingInfo(targetDate, totalCount, items);
     }

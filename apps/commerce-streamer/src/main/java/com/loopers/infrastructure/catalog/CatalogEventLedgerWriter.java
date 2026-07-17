@@ -9,6 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.util.List;
 
+/**
+ * Kafka에서 소비한 카탈로그 이벤트를 원장 테이블에 배치로 적재한다.
+ * 이후 CDC(Change Data Capture)가 이 테이블 변경분을 읽어 product_metrics/랭킹 반영을 트리거한다.
+ */
 @Repository
 @RequiredArgsConstructor
 public class CatalogEventLedgerWriter {
@@ -41,6 +45,9 @@ public class CatalogEventLedgerWriter {
                 statement.setLong(8, event.sourceOffset());
                 statement.setInt(9, event.eventVersion());
             }
+            // ON DUPLICATE KEY UPDATE id = id: 실질적으로 no-op 업데이트라 값은 바뀌지 않지만,
+            // MySQL에서 INSERT IGNORE 대신 이 패턴을 쓰면 다른 컬럼 위반 에러는 여전히 표면화되면서
+            // event_id 중복만 조용히 넘어가는 "upsert 없는 idempotent insert"가 된다.
         );
     }
 }

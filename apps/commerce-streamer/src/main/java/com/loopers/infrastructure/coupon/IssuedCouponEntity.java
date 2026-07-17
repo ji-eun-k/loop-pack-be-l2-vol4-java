@@ -9,11 +9,15 @@ import lombok.Getter;
 
 import java.time.ZonedDateTime;
 
+/**
+ * 유저에게 발급된 쿠폰 1건. coupon_id+user_id 조합의 존재 여부로 중복 발급을 판단한다.
+ */
 @Getter
 @Entity(name = "IssuedCoupon")
 @Table(name = "issued_coupon")
 public class IssuedCouponEntity extends BaseEntity {
 
+    // 동시에 같은 발급 건을 갱신하는 경쟁 상황에서 낙관적 락으로 덮어쓰기를 방지한다.
     @Version
     private Long version;
 

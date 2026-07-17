@@ -42,6 +42,57 @@ commerce-api
   └─ GET /api/v1/products/{productId}
 ```
 
+### 2.1 Data Model
+
+```mermaid
+flowchart LR
+    EVENT[조회·좋아요·주문 이벤트] --> LEDGER[(catalog_event_ledger<br/>이벤트 원장 DB)]
+    LEDGER -->|CDC·점수 계산| RANKING[(Redis<br/>실시간 일간 랭킹)]
+    RANKING -->|10분마다 Top 100 저장| SNAPSHOT[(ranking_top_snapshot<br/>조회 fallback DB)]
+    LEDGER -->|Redis 데이터 유실 시 재생| RANKING
+```
+
+#### 이벤트 원장 DB — `catalog_event_ledger`
+
+| 컬럼 | 타입 | 역할 |
+|---|---|---|
+| `id` | BIGINT, PK, AUTO_INCREMENT | 원장 조회 및 복구 배치의 순서 |
+| `event_id` | VARCHAR(100), UNIQUE | 이벤트 중복 적재 방지 |
+| `event_type` | VARCHAR(100) | 조회·좋아요·주문 등 이벤트 구분 |
+| `occurred_at` | DATETIME(6), INDEX | 이벤트 발생일 기준 랭킹 선택 및 복구 범위 |
+| `received_at` | DATETIME(6) | streamer가 이벤트를 수신한 시각 |
+| `payload` | JSON | 상품 ID와 주문 금액 등 점수 재계산 원본 |
+| `source_topic` | VARCHAR(255) | 원본 Kafka 토픽 |
+| `source_partition` | INT | 원본 Kafka 파티션 |
+| `source_offset` | BIGINT | 원본 Kafka offset |
+| `event_version` | INT | 이벤트 스키마 버전 |
+
+이 테이블은 Redis 장애와 데이터 유실에 대비한 영속 원본이다. Redis 복구 시 해당 날짜의 원장 이벤트를 읽어 점수를 다시 계산한다.
+
+#### Top-100 snapshot DB — `ranking_top_snapshot`
+
+| 컬럼 | 타입 | 역할 |
+|---|---|---|
+| `ranking_date` | DATE, PK | 랭킹 날짜 |
+| `rank_position` | INT, PK | 해당 날짜의 순위 1~100 |
+| `product_id` | BIGINT, INDEX | 상품 식별자 및 단건 순위 fallback 조회 |
+| `score` | DOUBLE | 스냅샷 생성 당시 점수 |
+| `snapshotted_at` | DATETIME(6) | 마지막 정상 스냅샷 시각 |
+
+`(ranking_date, rank_position)`을 복합 PK로 사용한다. commerce-api가 Redis의 오늘 랭킹 Top 100을 기본 10분마다 날짜 단위 트랜잭션으로 교체하며, Redis 조회 장애 시 마지막 정상 스냅샷을 제공한다.
+
+#### Redis 키 전략
+
+| 키 | 타입 | 값 | TTL | 역할 |
+|---|---|---|---:|---|
+| `ranking:all:{yyyyMMdd}` | ZSET | member=`productId`, score=누적 랭킹 점수 | 2일 | 날짜별 실시간 랭킹 |
+| `ranking:handled:{yyyyMMdd}` | SET | member=`eventId` | 2일 | Kafka 재처리와 원장 재생의 중복 점수 방지 |
+| `ranking:recovery:lock:{yyyy-MM-dd}` | STRING | 복구 실행 owner UUID | 기본 30분 | 여러 파드의 동시 원장 복구 방지 |
+| `ranking:recovery:completed:{yyyy-MM-dd}` | STRING | `1` | 기본 2일 | 복구 완료 기록. 랭킹 키와 처리 이력 키가 정상일 때만 복구 생략 |
+| `ranking:carry-over:{yyyy-MM-dd}` | STRING | 실행 token UUID | 1일 | 여러 파드의 동시 carry-over 방지 |
+
+랭킹 ZSET과 처리 이력 SET은 하나의 Lua script에서 함께 갱신한다. 복구 완료 마커가 있어도 두 데이터 키 중 하나가 유실되면 불완전한 키를 초기화하고 이벤트 원장에서 다시 복구한다.
+
 ## 3. Redis 키 구조
 
 ### 3.1 일간 랭킹 ZSET
@@ -334,6 +385,14 @@ TTL은 새로운 이벤트가 실제 적용된 경우 갱신된다. 동일 event
 
 commerce-streamer의 스케줄러는 매일 23시 50분에 실행된다.
 
+```mermaid
+flowchart LR
+    S[매일 23시 50분 스케줄러 실행] --> TODAY[(오늘 Redis 랭킹 조회)]
+    TODAY --> SCORE[오늘 점수에 0.05 적용]
+    SCORE --> TOMORROW[(내일 Redis 랭킹 생성)]
+    TOMORROW --> EVENT[자정 이후 실제 이벤트 점수 누적]
+```
+
 ```text
 오늘 ZSET 전체 점수 × 0.05
 → 내일 ranking:all:{yyyyMMdd} 생성
@@ -447,3 +506,23 @@ ranking:
     top-n: 100
     interval-ms: 600000
 ```
+
+### 14.1 Redis 전체 장애와 원장 기반 복구 흐름
+
+```mermaid
+flowchart TD
+    T[복구 스케줄러 주기 실행] --> UP{Redis 사용 가능?}
+    UP -->|아니오| RETRY[다음 주기에 재시도]
+    RETRY --> T
+    UP -->|예| CHECK{완료 마커와 랭킹·처리 이력 키가<br/>모두 존재하는가?}
+    CHECK -->|예| SKIP[복구 생략]
+    SKIP --> END[종료]
+    CHECK -->|아니오| READ[(원장 이벤트 조회)]
+    READ --> MAP[랭킹 점수 재계산 & Redis 랭킹에 반영]
+    MAP --> MARK[Redis에 복구 완료 마커 저장]
+    MARK --> END
+```
+
+`RankingRecoveryScheduler`는 기본 1분 간격으로 실행된다. Redis가 복구되어 접근 가능하고 해당 날짜의 복구 완료 마커가 없을 때, `RankingRecoveryService`가 날짜별 분산 락을 얻은 뒤 원장을 읽기 시작한다.
+
+각 원장 이벤트의 `eventType`과 `payload`로 상품별 점수를 다시 계산하고 `ranking:all:{yyyyMMdd}`에 반영한다. 모든 원장 처리가 끝나면 **복구된 Redis**에 `ranking:recovery:completed:{yyyy-MM-dd}` 키를 저장한다. 완료 마커가 있더라도 랭킹 키 또는 처리 이력 키가 유실됐다면 다시 복구한다. 재복구할 때는 불완전한 두 키를 함께 비운 뒤 원장으로 재구축하므로, 복구 직후 Redis가 다시 장애를 겪어도 다음 스케줄에서 복구할 수 있다.

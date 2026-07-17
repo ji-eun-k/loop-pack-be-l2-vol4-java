@@ -9,6 +9,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * RankingRecoveryService가 랭킹을 리플레이할 때 원장 테이블을 커서 기반으로 페이징 조회하는 저장소.
+ */
 @Repository
 @RequiredArgsConstructor
 public class CatalogRankingReplayRepository {

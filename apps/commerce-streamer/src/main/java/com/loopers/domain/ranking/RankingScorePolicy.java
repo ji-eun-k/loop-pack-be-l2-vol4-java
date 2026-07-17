@@ -22,6 +22,7 @@ public class RankingScorePolicy {
     }
 
     public double unlikeScore() {
+        // 좋아요 취소는 좋아요 점수를 그대로 되돌려 순증감이 0이 되도록 한다.
         return -weights.like();
     }
 

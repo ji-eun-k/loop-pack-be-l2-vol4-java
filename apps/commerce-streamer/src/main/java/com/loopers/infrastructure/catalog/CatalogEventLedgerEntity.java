@@ -13,6 +13,10 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
+/**
+ * catalog_event_ledger 테이블 매핑 엔티티. event_id에 UNIQUE 제약을 걸어 동일 이벤트의
+ * 중복 적재를 DB 레벨에서도 막는다(애플리케이션 멱등 체크의 이중 안전장치).
+ */
 @Entity(name = "CatalogEventLedger")
 @Table(
     name = "catalog_event_ledger",

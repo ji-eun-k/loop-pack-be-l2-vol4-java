@@ -17,6 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.ZonedDateTime;
 import java.util.Map;
 
+/**
+ * 쿠폰 발급 요청 이벤트를 처리한다. 중복 발급 방지 → 재고 체크 → 발급 → 재고 차감 순으로 진행하며,
+ * 재고 수량은 Redis 카운터로 관리해 DB 락 없이 빠르게 소진 여부를 판단한다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

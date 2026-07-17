@@ -16,6 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * CouponIssueConsumer가 DlqPublisher를 통해 격리한 실패 메시지를 소비해, 해당 발급 이벤트의
+ * 상태를 FAILED로 마무리 짓는다. (재시도 큐가 아니라 최종 실패 처리 큐 — 자동 재시도는 하지 않는다.)
+ */
 @Slf4j
 @RequiredArgsConstructor
 @Component
@@ -35,6 +39,7 @@ public class CouponIssueDlqConsumer {
             try {
                 Map<String, Object> data = objectMapper.readValue(record.value().toString(), new TypeReference<>() {});
                 String eventId = (String) data.get("eventId");
+                // 해당 eventId 레코드가 아직 없다면(발급 저장 자체가 실패한 경우 등) 조용히 skip한다.
                 couponIssueEventJpaRepository.findByEventId(eventId).ifPresent(entity -> {
                     entity.updateResult(CouponIssueResult.FAILED);
                     couponIssueEventJpaRepository.save(entity);

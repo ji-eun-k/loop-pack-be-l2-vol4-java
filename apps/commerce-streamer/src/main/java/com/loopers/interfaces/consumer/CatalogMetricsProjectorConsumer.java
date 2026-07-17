@@ -12,6 +12,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * catalog_event_ledger CDC 스트림을 구독해 product_metrics를 갱신하는 프로젝터.
+ * 랭킹 반영(CatalogRankingProjectorConsumer)과 같은 원장 토픽을 각자 다른 groupId로 구독해
+ * 서로 독립적으로 동작한다 — 한쪽이 지연/실패해도 다른 쪽 처리에는 영향이 없다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

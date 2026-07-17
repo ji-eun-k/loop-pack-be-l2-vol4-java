@@ -95,6 +95,23 @@ class RankingRecoveryServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("복구 완료 후 Redis 랭킹이 다시 유실되면 완료 마커가 있어도 원장에서 재복구한다")
+    void recoversAgainWhenRedisDataIsLostAfterCompletion() {
+        ledgerWriter.appendAll(List.of(event("view-event", "ProductViewedEvent", 0,
+            "{\"productId\":1001}")));
+
+        RankingRecoveryService.RecoveryResult first = recoveryService.recoverTodayIfNecessary();
+        redisTemplate.delete(List.of(RANKING_KEY, "ranking:handled:20260717"));
+        RankingRecoveryService.RecoveryResult second = recoveryService.recoverTodayIfNecessary();
+
+        assertThat(first.status()).isEqualTo(RankingRecoveryService.Status.COMPLETED);
+        assertThat(second.status()).isEqualTo(RankingRecoveryService.Status.COMPLETED);
+        assertThat(second.scanned()).isEqualTo(1);
+        assertThat(second.applied()).isEqualTo(1);
+        assertThat(redisTemplate.opsForZSet().score(RANKING_KEY, "1001")).isEqualTo(0.1);
+    }
+
+    @Test
     @DisplayName("다른 파드가 복구 락을 보유하면 현재 파드는 건너뛴다")
     void skipsWhenAnotherPodOwnsLock() {
         redisTemplate.opsForValue().set("ranking:recovery:lock:2026-07-17", "other-pod");
