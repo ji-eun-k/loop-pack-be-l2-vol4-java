@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest
 class OrderFacadeIntegrationTest {
@@ -206,11 +207,13 @@ class OrderFacadeIntegrationTest {
                 new OrderCommand.Create.Item(product.getId(), 3)
             ));
 
-            // AFTER_COMMIT 리스너의 예외는 호출자에게 전파되지만, 트랜잭션은 이미 커밋된 상태다.
-            assertThrows(RuntimeException.class, () -> orderFacade.createOrder(command));
+            // AFTER_COMMIT 리스너의 예외는 Spring이 afterCompletion 단계에서 삼키므로 호출자에게 전파되지 않는다.
+            OrderInfo.Create result = orderFacade.createOrder(command);
 
             ProductStockEntity stock = productStockJpaRepository.findByProductId(product.getId()).orElseThrow();
             assertAll(
+                () -> verify(entryTokenRepository).delete(anyLong()),
+                () -> assertThat(result.orderId()).isNotNull(),
                 () -> assertThat(orderJpaRepository.count()).isEqualTo(1),
                 () -> assertThat(stock.getQuantity()).isEqualTo(7L)
             );

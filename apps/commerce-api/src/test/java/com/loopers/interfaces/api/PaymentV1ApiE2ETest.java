@@ -1,5 +1,7 @@
 package com.loopers.interfaces.api;
 
+import com.loopers.application.user.UserService;
+import com.loopers.domain.queue.EntryTokenRepository;
 import com.loopers.infrastructure.brand.BrandEntity;
 import com.loopers.infrastructure.brand.BrandJpaRepository;
 import com.loopers.infrastructure.pg.PgApiResponse;
@@ -12,7 +14,9 @@ import com.loopers.domain.payment.CardType;
 import com.loopers.interfaces.api.order.OrderV1Dto;
 import com.loopers.interfaces.api.payment.PaymentV1Dto;
 import com.loopers.interfaces.api.user.UserV1Dto;
+import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
+import com.loopers.utils.RedisCleanUp;
 import feign.FeignException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -42,6 +47,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RedisTestContainersConfig.class)
 class PaymentV1ApiE2ETest {
 
     private static final String PAYMENTS_URL = "/api/v1/payments";
@@ -49,6 +55,7 @@ class PaymentV1ApiE2ETest {
     private static final String ORDERS_URL = "/api/v1/orders";
     private static final String LOGIN_ID = "paymentuser";
     private static final String LOGIN_PW = "pAssWord1!";
+    private static final String QUEUE_TOKEN = "test-queue-token";
 
     @MockitoBean
     private PgFeignClient pgFeignClient;
@@ -58,8 +65,12 @@ class PaymentV1ApiE2ETest {
     @Autowired private ProductJpaRepository productJpaRepository;
     @Autowired private ProductStockJpaRepository productStockJpaRepository;
     @Autowired private DatabaseCleanUp databaseCleanUp;
+    @Autowired private RedisCleanUp redisCleanUp;
+    @Autowired private EntryTokenRepository entryTokenRepository;
+    @Autowired private UserService userService;
 
     private Long productId;
+    private Long userId;
 
     @BeforeEach
     void setUp() {
@@ -71,6 +82,8 @@ class PaymentV1ApiE2ETest {
             new ParameterizedTypeReference<ApiResponse<UserV1Dto.UserResponse>>() {}
         );
 
+        userId = userService.getUser(LOGIN_ID, LOGIN_PW).getId();
+
         BrandEntity brand = brandJpaRepository.save(new BrandEntity("브랜드", "설명"));
         ProductEntity product = productJpaRepository.save(new ProductEntity(brand.getId(), "청바지", BigDecimal.valueOf(50000)));
         productStockJpaRepository.save(new ProductStockEntity(product.getId(), 10L));
@@ -79,6 +92,7 @@ class PaymentV1ApiE2ETest {
 
     @AfterEach
     void tearDown() {
+        redisCleanUp.truncateAll();
         databaseCleanUp.truncateAllTables();
     }
 
@@ -86,10 +100,13 @@ class PaymentV1ApiE2ETest {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Loopers-LoginId", LOGIN_ID);
         headers.set("X-Loopers-LoginPw", LOGIN_PW);
+        headers.set("X-Queue-Token", QUEUE_TOKEN);
         return headers;
     }
 
     private Long createOrder() {
+        // 주문 성공 시 QueueTokenCleanupListener가 입장 토큰을 삭제하므로, 주문마다 토큰을 재발급한다.
+        entryTokenRepository.save(userId, QUEUE_TOKEN, 300);
         OrderV1Dto.OrderCreateRequest request = new OrderV1Dto.OrderCreateRequest(
             List.of(new OrderV1Dto.OrderCreateRequest.Item(productId, 1)), null
         );

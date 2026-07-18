@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @RequiredArgsConstructor
 @Component
@@ -37,6 +38,11 @@ public class ProductService {
                 productCacheRepository.save(product);
                 return product;
             });
+    }
+
+    @Transactional(readOnly = true)
+    public List<Product> getProductsByIds(List<Long> ids) {
+        return productRepository.findAllByIds(ids);
     }
 
     @Transactional(readOnly = true)

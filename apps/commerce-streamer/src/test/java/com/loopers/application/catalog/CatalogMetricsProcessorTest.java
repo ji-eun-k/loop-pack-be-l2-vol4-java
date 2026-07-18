@@ -34,7 +34,8 @@ class CatalogMetricsProcessorTest {
 
     @BeforeEach
     void setUp() {
-        processor = new CatalogMetricsProcessor(eventHandledJpaRepository, productMetricsJpaRepository, new ObjectMapper());
+        processor = new CatalogMetricsProcessor(eventHandledJpaRepository, productMetricsJpaRepository,
+            new ObjectMapper());
     }
 
     @DisplayName("process()를 실행할 때,")

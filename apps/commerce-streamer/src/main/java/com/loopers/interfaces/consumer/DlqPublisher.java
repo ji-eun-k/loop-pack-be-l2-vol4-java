@@ -6,6 +6,10 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * 처리 실패한 메시지를 원본 토픽명 + ".dlq" 토픽으로 그대로 재발행해 격리하는 공용 컴포넌트.
+ * 여러 컨슈머(CatalogEventLedgerConsumer, CouponIssueConsumer 등)가 공유한다.
+ */
 @Slf4j
 @RequiredArgsConstructor
 @Component

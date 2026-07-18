@@ -25,11 +25,21 @@ spring:
       - logging.yml
       - monitoring.yml
 
+datasource:
+  redis:
+    command-timeout: 1s
+
 queue:
   batch-size: 75
   scheduler-interval-ms: 1000
   token-ttl-seconds: 300
   max-waiting-size: 100000
+
+ranking:
+  repository: redis
+  fallback-snapshot:
+    top-n: 100
+    interval-ms: 600000
 
 pg:
   base-url: http://127.0.0.1:8082

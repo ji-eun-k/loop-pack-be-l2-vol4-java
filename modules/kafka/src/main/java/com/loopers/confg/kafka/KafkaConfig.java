@@ -59,6 +59,17 @@ public class KafkaConfig {
     }
 
     @Bean
+    public NewTopic catalogEventLedgerTopic() {
+        // 원장의 commit 순서를 projector가 동일하게 관찰하도록 단일 파티션으로 시작한다.
+        return TopicBuilder.name("catalog-event-ledger-v1").partitions(1).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic catalogEventLedgerDlqTopic() {
+        return TopicBuilder.name("catalog-event-ledger-v1.dlq").partitions(1).replicas(1).build();
+    }
+
+    @Bean
     public NewTopic couponIssueRequestsTopic() {
         return TopicBuilder.name("coupon-issue-requests").partitions(3).replicas(1).build();
     }

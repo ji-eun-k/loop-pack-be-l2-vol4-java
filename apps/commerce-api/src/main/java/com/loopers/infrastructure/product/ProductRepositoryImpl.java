@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 @RequiredArgsConstructor
@@ -33,6 +34,13 @@ public class ProductRepositoryImpl implements ProductRepository {
     public Optional<Product> find(Long id) {
         return productJpaRepository.findByIdAndDeletedAtIsNull(id)
             .map(ProductEntity::toDomain);
+    }
+
+    @Override
+    public List<Product> findAllByIds(List<Long> ids) {
+        return productJpaRepository.findAllByIdInAndDeletedAtIsNull(ids).stream()
+            .map(ProductEntity::toDomain)
+            .toList();
     }
 
     @Override

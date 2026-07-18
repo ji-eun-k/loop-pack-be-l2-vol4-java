@@ -13,6 +13,7 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -34,8 +35,9 @@ public class RedisConfig{
         int database = redisProperties.database();
         RedisNodeInfo master = redisProperties.master();
         List<RedisNodeInfo> replicas = redisProperties.replicas();
+        Duration commandTimeout = redisProperties.commandTimeout();
         return lettuceConnectionFactory(
-                database, master, replicas,
+                database, master, replicas, commandTimeout,
                 b -> b.readFrom(ReadFrom.REPLICA_PREFERRED)
         );
     }
@@ -46,8 +48,9 @@ public class RedisConfig{
         int database = redisProperties.database();
         RedisNodeInfo master = redisProperties.master();
         List<RedisNodeInfo> replicas = redisProperties.replicas();
+        Duration commandTimeout = redisProperties.commandTimeout();
         return lettuceConnectionFactory(
-                database, master, replicas,
+                database, master, replicas, commandTimeout,
                 b -> b.readFrom(ReadFrom.MASTER)
         );
     }
@@ -73,9 +76,11 @@ public class RedisConfig{
             int database,
             RedisNodeInfo master,
             List<RedisNodeInfo> replicas,
+            Duration commandTimeout,
             Consumer<LettuceClientConfiguration.LettuceClientConfigurationBuilder> customizer
     ){
-        LettuceClientConfiguration.LettuceClientConfigurationBuilder builder = LettuceClientConfiguration.builder();
+        LettuceClientConfiguration.LettuceClientConfigurationBuilder builder = LettuceClientConfiguration.builder()
+                .commandTimeout(commandTimeout);
         if(customizer != null) customizer.accept(builder);
         LettuceClientConfiguration clientConfig = builder.build();
         RedisStaticMasterReplicaConfiguration masterReplicaConfig = new RedisStaticMasterReplicaConfiguration(master.host(), master.port());

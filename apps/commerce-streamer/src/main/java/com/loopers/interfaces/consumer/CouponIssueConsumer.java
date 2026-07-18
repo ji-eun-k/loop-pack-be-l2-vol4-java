@@ -11,6 +11,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * 쿠폰 발급 요청 토픽을 소비해 CouponIssueProcessor로 위임한다.
+ * 배치 내 한 건이 실패해도 DLQ로 격리하고 나머지는 계속 처리하며, ack는 배치 끝에서 한 번만 수행한다
+ * (개별 record 실패가 배치 전체 재처리를 유발하지 않도록).
+ */
 @Slf4j
 @RequiredArgsConstructor
 @Component

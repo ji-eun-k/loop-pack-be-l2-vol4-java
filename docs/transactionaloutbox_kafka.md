@@ -59,10 +59,10 @@ Kafka 발행이 실패해도 outbox는 PENDING 상태로 남아 재시도된다.
 ┌──────────────────────────────────────────────────────────────┐
 │                      commerce-streamer                       │
 │                                                              │
-│  CatalogMetricsConsumer  ← catalog-events-v1                 │
+│  CatalogEventLedgerConsumer ← catalog-events-v1              │
 │       └─ CatalogMetricsProcessor (멱등 처리, EventHandled)    │
 │                                                              │
-│  CatalogViewConsumer  ← catalog-view-events-v1               │
+│  CatalogEventLedgerConsumer ← catalog-view-events-v1         │
 │       └─ productMetricsJpaRepository.upsertViewCountIncrement│
 │                                                              │
 │  CouponIssueConsumer  ← coupon-issue-requests                │
@@ -429,10 +429,10 @@ public void sendToDlq(ConsumerRecord<Object, Object> record, Exception cause) {
 DLQ 토픽은 `KafkaConfig`에서 `@Bean NewTopic`으로 명시적으로 선언되어 있다(`auto.create.topics.enable: false` 설정 때문에 선언 없이는 발행 자체가 실패한다).
 
 적용 대상:
-- `CatalogMetricsConsumer` → `catalog-events-v1.dlq`
+- `CatalogEventLedgerConsumer` → 원본 토픽별 `.dlq`
 - `CouponIssueConsumer` → `coupon-issue-requests.dlq`
 
-`CatalogViewConsumer`는 view_count 누락이 치명적이지 않으므로 DLQ 대신 경고 로그만 남긴다. `catalog-view-events-v1.dlq`는 토픽만 선언되어 있고 현재 사용하는 consumer는 없다.
+원장 정규화에 실패한 이벤트는 원본 토픽의 DLQ로 보낸다. 정상 원장 이벤트는 CDC projector가 product_metrics와 Redis 랭킹에 각각 반영한다.
 
 ---
 
@@ -440,8 +440,8 @@ DLQ 토픽은 `KafkaConfig`에서 `@Bean NewTopic`으로 명시적으로 선언�
 
 | 토픽 | 파티션 | 프로듀서 | 컨슈머 | 파티션 키 | 비고 |
 |---|---|---|---|---|---|
-| `catalog-events-v1` | 3 | OutboxEventPublishScheduler | CatalogMetricsConsumer | orderId / userId | Outbox 경유 |
-| `catalog-view-events-v1` | 3 | UserActionEventListener | CatalogViewConsumer | null (round-robin) | 직접 발행 |
+| `catalog-events-v1` | 3 | OutboxEventPublishScheduler | CatalogEventLedgerConsumer | orderId / userId | Outbox 경유 |
+| `catalog-view-events-v1` | 3 | UserActionEventListener | CatalogEventLedgerConsumer | null (round-robin) | 직접 발행 |
 | `coupon-issue-requests` | 3 | CouponIssueFacade | CouponIssueConsumer | couponId | 직접 발행, 순서 중요 |
 | `catalog-events-v1.dlq` | 1 | DlqPublisher | (수동 모니터링) | - | 처리 실패 격리 |
 | `catalog-view-events-v1.dlq` | 1 | (미사용) | (수동 모니터링) | - | 토픽만 선언, consumer 없음 |
