@@ -1,12 +1,17 @@
 package com.loopers.job.ranking;
 
 import com.loopers.batch.job.ranking.RankingBatchJobConfig;
+import com.loopers.domain.ranking.batch.RankingBatchLock;
+import com.loopers.domain.ranking.batch.RankingBatchLockKeys;
 import com.loopers.testcontainers.MySqlTestContainersConfig;
+import com.loopers.testcontainers.RedisTestContainersConfig;
 import com.loopers.utils.DatabaseCleanUp;
+import com.loopers.utils.RedisCleanUp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.batch.core.BatchStatus;
 import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
@@ -22,9 +27,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -32,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 
 @SpringBootTest
 @SpringBatchTest
-@Import(MySqlTestContainersConfig.class)
+@Import({MySqlTestContainersConfig.class, RedisTestContainersConfig.class})
 @TestPropertySource(properties = "spring.batch.job.name=" + RankingBatchJobConfig.JOB_NAME)
 class RankingBatchJobE2ETest {
 
@@ -40,10 +47,13 @@ class RankingBatchJobE2ETest {
     @Autowired @Qualifier(RankingBatchJobConfig.JOB_NAME) private Job job;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private DatabaseCleanUp databaseCleanUp;
+    @Autowired private RedisCleanUp redisCleanUp;
+    @Autowired private RankingBatchLock rankingBatchLock;
 
     @AfterEach
     void tearDown() {
         databaseCleanUp.truncateAllTables();
+        redisCleanUp.truncateAll();
         // BATCH_* 테이블은 JPA 엔티티가 아니라 DatabaseCleanUp이 지우지 않는다.
         // 같은 (period, periodKey) 조합을 여러 테스트에서 재사용해도 JobInstanceAlreadyCompleteException이
         // 나지 않도록 매 테스트 후 직접 비워준다.
@@ -189,6 +199,31 @@ class RankingBatchJobE2ETest {
 
             assertThatExceptionOfType(JobParametersInvalidException.class)
                 .isThrownBy(() -> jobLauncherTestUtils.launchJob(parameters));
+        }
+    }
+
+    @DisplayName("같은 (period, periodKey)에 대해 이미 실행 중인 배치가 있을 때,")
+    @Nested
+    class ConcurrentExecution {
+
+        @DisplayName("새 실행은 락을 얻지 못해 FAILED로 종료되고 아무것도 게시하지 않는다.")
+        @Test
+        void failsWithoutPublishing_whenLockIsAlreadyHeld() throws Exception {
+            String periodKey = "2026W31";
+            String lockKey = RankingBatchLockKeys.of("WEEKLY", periodKey);
+            rankingBatchLock.tryLock(lockKey, UUID.randomUUID().toString(), Duration.ofMinutes(5));
+            insertDailyMetrics(LocalDate.of(2026, 7, 27), 100L, 10, 5, 20);
+
+            jobLauncherTestUtils.setJob(job);
+            JobParameters parameters = new JobParametersBuilder()
+                .addString("period", "WEEKLY")
+                .addString("periodKey", periodKey)
+                .toJobParameters();
+
+            JobExecution execution = jobLauncherTestUtils.launchJob(parameters);
+
+            assertThat(execution.getStatus()).isEqualTo(BatchStatus.FAILED);
+            assertThat(findWeeklyRows(periodKey)).isEmpty();
         }
     }
 }

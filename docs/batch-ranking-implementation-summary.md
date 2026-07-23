@@ -67,6 +67,7 @@ stagingCleanupStep (Tasklet)
 - `RankingBatchJobConfig` — Job/3-Step 정의, `RunIdIncrementer`
 - `RankingBatchJobParametersValidator` — Job 시작 전 파라미터 검증(`JobParametersInvalidException`)
 - `RankingBatchJobMetrics` / `RankingBatchJobMetricsListener` — `batch.rank.job.failure.count`(Counter), `batch.rank.job.last.success.epoch`(Gauge)
+- `RankingBatchLock`(포트, `domain/ranking/batch/`) / `RedisRankingBatchLock`(구현, `infrastructure/ranking/lock/`) / `RankingBatchLockListener` — 동일 `period`+`periodKey` 동시 실행 방지. `SET NX PX` + token 기반 compare-and-delete unlock, TTL 30분(설계 배경은 [`batch-ranking-mv-design.md`](./batch-ranking-mv-design.md#constraints) 참고)
 - `step/RankingStagingCleanupTasklet`, `step/RankingTop100FlushListener`(`@StepScope` accumulator 공유), `step/RankingPublishTasklet`
 
 ### 5.4 기타 수정
@@ -110,8 +111,8 @@ GET /api/v1/rankings?period=MONTHLY&periodKey=202607&page=1&size=20     (신규)
 |---|---|
 | `commerce-streamer` | `ProductDailyMetricsJpaRepositoryIntegrationTest`, `CatalogMetricsProcessorTest`(보강) |
 | `commerce-batch` (도메인) | `RankingMvScoreCalculatorTest`, `RankingTop100AccumulatorTest`, `RankingStagingSnapshotValidatorTest`, `RankingBatchJobParametersTest`(ISO 주 경계 포함) |
-| `commerce-batch` (infra) | `ProductDailyMetricsJpaRepositoryIntegrationTest`, `RankingStagingRepositoryImplIntegrationTest`, `ProductRankMvPublishRepositoryImplIntegrationTest` |
-| `commerce-batch` (Job) | `RankingBatchJobParametersValidatorTest`, `RankingBatchJobMetricsTest`, `RankingBatchJobE2ETest`(WEEKLY/MONTHLY 정상, 빈 기간, 재실행 교체, 잘못된 파라미터) |
+| `commerce-batch` (infra) | `ProductDailyMetricsJpaRepositoryIntegrationTest`, `RankingStagingRepositoryImplIntegrationTest`, `ProductRankMvPublishRepositoryImplIntegrationTest`, `RedisRankingBatchLockIntegrationTest`(tryLock/unlock, token 불일치 시 해제 무시) |
+| `commerce-batch` (Job) | `RankingBatchJobParametersValidatorTest`, `RankingBatchJobMetricsTest`, `RankingBatchLockListenerTest`(락 획득 실패 시 예외, 미획득 시 unlock 미호출), `RankingBatchJobE2ETest`(WEEKLY/MONTHLY 정상, 빈 기간, 재실행 교체, 잘못된 파라미터, 동시 실행 시 락으로 FAILED) |
 | `commerce-api` | `RankingMvPeriodTest`, `RankingMvRequestValidatorTest`, `RankingMvReadRepositoryImplIntegrationTest`, `RankingFacadeUnitTest`(보강), `RankingV1ApiE2ETest`(기존 date 회귀 + 신규 week/month 계약) |
 
 ### 7.2 실제 로컬 인프라 원샷 실행 (수동 검증)
@@ -122,12 +123,20 @@ GET /api/v1/rankings?period=MONTHLY&periodKey=202607&page=1&size=20     (신규)
 - 5개 시드로 손계산한 점수와 실제 결과 일치(`0.1*view+0.2*like+0.6*order`, 날짜 범위 밖 데이터 정상 제외) 확인
 - **1000개 상품 시드**로 WEEKLY/MONTHLY 둘 다 실행 → `mv_product_rank_weekly/monthly` 각각 정확히 100행, productId 중복 없음, rank 1~100 연속, 동점 시 productId 오름차순 타이브레이크까지 실제 확인
 
+### 7.3 Jenkins 파이프라인/스케줄러 실행 검증
+
+`docker/infra-compose.yml`의 `jenkins` 서비스로 실제 로컬 Jenkins를 띄우고, Job 3개(`ranking-batch-verify`/`ranking-batch-weekly-schedule`/`ranking-batch-monthly-schedule`)를 Script Console로 생성한 뒤 각각 수동 트리거로 검증(자세한 구성은 [`batch-ranking-mv-design.md`](./batch-ranking-mv-design.md#배치-트리거-jenkins) 참고).
+
+- `ranking-batch-verify`(`PERIOD_KEY=2026W30`, `SEED_TEST_DATA=true`): Build → Seed → Run 전체 스테이지 성공, `mv_product_rank_weekly`에 30건 insert 및 Job `COMPLETED` 확인
+- `ranking-batch-weekly-schedule`를 `PERIOD_KEY` 공백으로 트리거 → `Resolve period` 스테이지가 직전 완료 주(`2026W29`)를 정확히 자동 계산해 `COMPLETED`
+- `ranking-batch-monthly-schedule`를 `PERIOD_KEY` 공백으로 트리거 → 직전 완료 월(`202606`)을 정확히 자동 계산해 `COMPLETED`
+- 두 스케줄 Job 모두 cron(`H 3 * * 1` / `H 3 1 * *`)이 `config.xml`에 정상 저장된 것을 확인(다음 자동 실행은 컨테이너가 떠 있는 한 매주 월요일/매월 1일 새벽 3시)
+
 ## 8. 알려진 제약 / 다음 라운드로 미룬 것
 
 이번 라운드에서 의도적으로 범위 밖으로 남긴 것들(전부 §5 오픈 이슈에서 이미 결정됨):
 
-- **Redis 분산락 없음** — 동일 period 동시 실행 방지 필요해지면 PR419의 `RedisRankingBatchLock` 이식
-- **K8s 스케줄링 없음** — 원샷 실행 구조 유지, 트리거는 범위 밖
+- **K8s 스케줄링 없음** — 로컬 Jenkins cron(`ranking-batch-weekly-schedule`/`ranking-batch-monthly-schedule`, 매주 월요일·매월 1일 03:00)으로 자동 실행되도록 붙였지만, 이는 로컬 1회성 검증용 Jenkins일 뿐 운영 스케줄러(K8s CronJob 등)로의 이관은 범위 밖(자세한 내용은 [`batch-ranking-mv-design.md`](./batch-ranking-mv-design.md#배치-트리거-jenkins) 참고)
 - **모니터링은 P1(실패 카운트)/P3(마지막 성공 시각)만** — P2(stale snapshot age)는 제외
 - **`product_daily_metrics` retention 미구현** — 무한정 쌓이는 테이블, 정리 정책은 추후 과제(§3.3.1)
 - **점수 산식이 일간 랭킹과 다름** — 카운트 기반 단순합 vs 일간의 금액 로그 정규화. API/사용자에게 노출하지 않기로 결정됨(§5-4)

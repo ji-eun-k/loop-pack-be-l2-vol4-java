@@ -53,6 +53,7 @@ public class RankingBatchJobConfig {
     private final StepMonitorListener stepMonitorListener;
     private final RankingBatchJobParametersValidator jobParametersValidator;
     private final RankingBatchJobMetricsListener jobMetricsListener;
+    private final RankingBatchLockListener lockListener;
     private final RankingStagingCleanupTasklet stagingCleanupTasklet;
     private final RankingPublishTasklet publishTasklet;
 
@@ -65,6 +66,7 @@ public class RankingBatchJobConfig {
         return new JobBuilder(JOB_NAME, jobRepository)
             .incrementer(new RunIdIncrementer())
             .validator(jobParametersValidator)
+            .listener(lockListener)
             .listener(jobListener)
             .listener(jobMetricsListener)
             .start(stagingCleanupStep)
