@@ -48,13 +48,10 @@ stagingCleanupStep (Tasklet)
 
 #### 배치 트리거 (Jenkins)
 
-K8s CronJob 같은 운영급 스케줄러는 이번 라운드 범위 밖으로 두고, 로컬 Jenkins(`Jenkinsfile`)로 실행 흐름과 주기 실행을 재현한다. 하나의 `Jenkinsfile`을 세 개 Job이 공유하되, Job마다 파라미터 기본값과 cron만 다르게 부여한다.
-
-| Job | 용도 | cron | `SEED_TEST_DATA` 기본값 |
-|---|---|---|---|
-| `ranking-batch-verify` | 수동 검증 | 없음 | `true` |
-| `ranking-batch-weekly-schedule` | 주간 자동 배치 | 매주 월 03:00 (`H 3 * * 1`) | `false` |
-| `ranking-batch-monthly-schedule` | 월간 자동 배치 | 매월 1일 03:00 (`H 3 1 * *`) | `false` |
+| Job | 용도 | cron |
+|---|---|---|
+| `ranking-batch-weekly-schedule` | 주간 자동 배치 | 매주 월 03:00 (`H 3 * * 1`) |
+| `ranking-batch-monthly-schedule` | 월간 자동 배치 | 매월 1일 03:00 (`H 3 1 * *`) |
 
 파이프라인 스테이지:
 
@@ -70,29 +67,6 @@ Build commerce-batch  →  Resolve period  →  Seed test data(선택)  →  Run
 - **`Seed test data`**: `product_daily_metrics`는 원래 `commerce-streamer`의 CDC로 채워지는 테이블이라, 검증 목적일 때만(`SEED_TEST_DATA=true`) Jenkins가 선택된 기간에 맞춰 더미 데이터를 직접 시딩한다(날짜 범위 계산 규칙은 `RankingBatchJobParameters`와 동일). 스케줄 Job은 이 값이 `false`라 실제 CDC 누적 데이터만 집계하며, 매번 더미 데이터로 실데이터를 덮어쓰는 일이 없다.
 - **`Run rankingProductMvJob`**: `java -jar commerce-batch-*.jar --job.name=rankingProductMvJob ...`로 원샷 실행하며, datasource는 compose 서비스명(`mysql`, `redis-master`, `redis-readonly`)으로 오버라이드한다. `--spring.jpa.hibernate.ddl-auto=update`로 오버라이드해 `local` 프로파일 기본값(`create`)이 기존 `product_daily_metrics` 데이터를 지우는 것을 막는다.
 - **cron은 `Jenkinsfile`이 아니라 Job 생성 스크립트에서 Job별로 부여**한다. 선언형 `triggers{}}`를 스크립트 안에 넣으면 이 스크립트를 공유하는 **모든** Job(수동 검증 Job 포함)에 같은 cron이 걸려버리므로, Groovy Script Console로 Job을 만들 때 `hudson.triggers.TimerTrigger`를 Job 객체에 직접 붙이는 방식을 택했다(파라미터 기본값도 같은 방식으로 Job별 오버라이드).
-- 즉 지금 Jenkins는 **로컬 1회성 검증 환경에 붙인 최소 스케줄러**다. 운영으로 옮기려면 이 Jenkins 자체를 상시 서버로 승격하거나(JCasC/Job DSL로 플러그인·Job 생성을 코드화), K8s CronJob 등으로 이관하는 작업이 별도로 필요하다.
-
-**Jenkins 서버 등록**: `docker/infra-compose.yml`에 `jenkins` 서비스를 추가해 위 파이프라인을 실제로 실행할 수 있는 로컬 Jenkins 서버를 구성한다.
-
-```yaml
-jenkins:
-  image: jenkins/jenkins:lts-jdk21
-  container_name: jenkins
-  user: root                 # 로컬 검증용: 마운트한 리포 파일 권한 이슈 회피
-  environment:
-    - JAVA_OPTS=-Djenkins.install.runSetupWizard=false   # 로컬 1회성 검증용: 셋업 위저드/보안 설정 생략
-  ports:
-    - "8080:8080"
-  volumes:
-    - jenkins_home:/var/jenkins_home
-    - gradle_cache:/root/.gradle                 # 매 빌드마다 의존성 재다운로드 방지
-    - ../:/workspace/loopers                      # 리포를 그대로 마운트 (git checkout 불필요)
-```
-
-- `docker-compose -f ./docker/infra-compose.yml up -d jenkins`로 기동하면 `http://localhost:8080`에서 접근 가능하다. 로그인 계정은 Jenkins가 최초 기동 시 자동 생성하는 `admin` + `/var/jenkins_home/secrets/initialAdminPassword`.
-- 리포를 `/workspace/loopers`에 통째로 마운트하므로 Jenkins가 git에서 별도로 checkout할 필요가 없고, 루트의 `Jenkinsfile` 내용을 그대로 Job의 "Pipeline script"(SCM 아님)로 사용한다.
-- `gradle_cache` 볼륨으로 `~/.gradle`을 영속화해, 컨테이너 재기동 시에도 의존성을 다시 받지 않는다.
-- 셋업 위저드를 꺼둔 "로컬 1회성 검증용" 구성이라 익명 접근은 403이지만, 플러그인 설치(`workflow-aggregator`)와 Job 3개 생성·파라미터·cron 등록은 전부 Jenkins Script Console(`POST /scriptText`, Groovy)로 자동화했다(수동 클릭 불필요, 재현 가능) — 운영 환경으로 옮기려면 이 Groovy 스크립트들을 JCasC(Configuration as Code)나 Job DSL로 정리하는 작업이 별도로 필요하다.
 
 ### Data Models
 
@@ -131,6 +105,39 @@ CREATE TABLE mv_product_rank_monthly (
 );
 ```
 
+#### `product_daily_metrics` — 배치 읽기 원본 (commerce-streamer가 쓰고, commerce-batch가 읽음)
+
+| 컬럼 | 타입 | Null | 기본값 | 키/인덱스 | 설명 |
+|---|---|---|---|---|---|
+| `metric_date` | `DATE` | NOT NULL | — | **PK(1)** | 지표 발생 일자 (일자별 스냅샷 차원) |
+| `product_id` | `BIGINT` | NOT NULL | — | **PK(2)**, `idx_daily_metrics_product(1)` | 상품 ID |
+| `order_count` | `BIGINT` | NOT NULL | `0` | | 일자별 주문 수 |
+| `like_count` | `BIGINT` | NOT NULL | `0` | | 일자별 좋아요 수 |
+| `view_count` | `BIGINT` | NOT NULL | `0` | | 일자별 조회 수 |
+| `updated_at` | `DATETIME(6)` | NOT NULL | — | | 마지막 upsert 시각 |
+
+#### `mv_product_rank_weekly` — 주간 Top100 MV (조회 전용)
+
+| 컬럼 | 타입 | Null | 키/제약 | 설명 |
+|---|---|---|---|---|
+| `period_key` | `VARCHAR(10)` | NOT NULL | **PK(1)**, `uk_mv_weekly_rank(1)` | ISO 주차 키 (예: `2026W30`) |
+| `product_id` | `BIGINT` | NOT NULL | **PK(2)** | 상품 ID |
+| `rank_position` | `INT` | NOT NULL | `uk_mv_weekly_rank(2)` | 순위 (1~100) |
+| `score` | `DOUBLE` | NOT NULL | | 점수 (`0.1*view + 0.2*like + 0.6*order`) |
+| `updated_at` | `DATETIME(6)` | NOT NULL | | 게시 시각 |
+
+#### `mv_product_rank_monthly` — 월간 Top100 MV (조회 전용)
+
+| 컬럼 | 타입 | Null | 키/제약 | 설명 |
+|---|---|---|---|---|
+| `period_key` | `VARCHAR(6)` | NOT NULL | **PK(1)**, `uk_mv_monthly_rank(1)` | 월 키 (예: `202607`) |
+| `product_id` | `BIGINT` | NOT NULL | **PK(2)** | 상품 ID |
+| `rank_position` | `INT` | NOT NULL | `uk_mv_monthly_rank(2)` | 순위 (1~100) |
+| `score` | `DOUBLE` | NOT NULL | | 점수 (주간과 동일 산식) |
+| `updated_at` | `DATETIME(6)` | NOT NULL | | 게시 시각 |
+
+두 MV는 `period_key` 길이(주간 `VARCHAR(10)` / 월간 `VARCHAR(6)`)만 다르고 구조가 동일하다.
+
 - MV의 PK를 `(period_key, product_id)`로 잡아 "같은 기간에 같은 상품 중복 저장"을 DB 레벨에서 막는다.
 - `UNIQUE(period_key, rank_position)`으로 같은 기간 내 순위 중복도 막는다.
 - 게시는 staging 테이블(`mv_product_rank_staging`)에서 rank 1..N 연속/productId 중복 없음을 검증한 뒤 delete+insert로 원자적 교체한다 — 배치 재실행 시에도 항상 최신 스냅샷만 남는다.
@@ -154,10 +161,6 @@ GET /api/v1/rankings?period=MONTHLY&periodKey=202607&page=1&size=20     (신규 
   - 포트: `domain/ranking/batch/RankingBatchLock`
   - 구현: `infrastructure/ranking/lock/RedisRankingBatchLock` (`SET NX PX` + Lua compare-and-delete)
   - 배선: `batch/job/ranking/RankingBatchLockListener` → `RankingBatchJobConfig`에 첫 번째 listener로 등록
-- **운영급 스케줄러 없음**: 로컬 Jenkins 자체 cron(주간 월요일/월간 1일 03:00)으로 자동 실행되지만, 이 Jenkins는 셋업 위저드를 꺼둔 로컬 1회성 검증 구성이라 상시 운영 인프라가 아니다. K8s CronJob 등으로의 이관은 이번 라운드 범위 밖.
-- **`product_daily_metrics` retention 미구현**: 무한정 누적되는 테이블이라 정리 정책이 필요하다.
-- **점수 산식 불일치**: MV 점수(`0.1*view+0.2*like+0.6*order` 단순 카운트 합)는 일간 Redis 랭킹 점수(금액 로그 정규화 등)와 계산식이 다르다. API 응답에는 점수 산출 방식을 노출하지 않기로 함.
-- **모니터링 최소화**: 배치 실패 카운트, 마지막 성공 시각만 계측(Micrometer). "오래된 스냅샷" 감지 같은 항목은 제외.
 
 ## Alternatives Considered
 
